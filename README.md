@@ -1,0 +1,294 @@
+# WordGloss
+
+**Inline vocabulary glosses for English books in KOReader.**
+
+WordGloss annotates difficult words with a short Chinese meaning printed directly above
+(or below) the word — similar in effect to Amazon's Word Wise — **without modifying the
+book by a single byte**. No `<ruby>` tags are injected, no XHTML is rewritten; the glosses
+exist only inside the plugin's own cache and paint layer.
+
+Current version: **1.3.0** (matches `_meta.lua`).
+
+[简体中文](README.zh-CN.md) | English
+
+![version](https://img.shields.io/badge/version-1.3.0-blue)
+![platform](https://img.shields.io/badge/platform-KOReader-green)
+![license](https://img.shields.io/badge/license-GPL--3.0-orange)
+
+---
+
+## Features
+
+- **Non-destructive.** The EPUB archive, `.sdr` sidecar, bookmarks and reading progress are
+  never touched. Clearing the plugin data restores everything exactly.
+- **Opt-in, never automatic.** After installing, *nothing happens* when you open a book.
+  You must tap **Start glossing** in the menu and choose a vocabulary size and translation
+  scope — the network is only ever used at that moment.
+- **Vocabulary levels.** Beginner / Intermediate / Advanced decide *which* words are worth
+  glossing, based on corpus frequency rank (Beginner = skip the most common 1,500 words,
+  Intermediate 3,000, Advanced 5,000). A custom threshold is also available.
+- **Glosses via the free Microsoft Edge endpoint.** No API key required. Translations are
+  cached in SQLite and reused across books — each word is translated once, after which page
+  turns are instant and offline.
+- **Manual and optional background translation.** Translate the current chapter or the whole
+  book from the menu (runs in a child process, so you can keep reading and stop at any
+  time). A separate "auto-translate while reading" toggle exists and is **off by default**.
+- **Proper-noun filter.** Words that only ever appear capitalized (names, places) are skipped.
+- **Adjustable gloss position.** `Small text above the word` / `Small text below the word`
+  (order: word → underline → gloss). *Gloss offset* controls how far the gloss sits from the
+  word (positive = push away, negative = pull closer); *underline offset* does the same for
+  the underline. Line height grows automatically as offsets grow, so nothing collides with
+  neighbouring lines.
+- **Adjustable underline style.** Solid / dashed / wavy, thickness 1–6 px. Dashed and wavy
+  share one *line density* control (smaller value = denser). Density offers small / medium /
+  large presets plus **Custom** (2–24 px; for dashed = length of one dash segment, for wavy =
+  half a wave). The wavy line uses the gentle custombg style: one full wave spans 12–22 px
+  with an amplitude of only ~2 px, and it does **not** scale with line thickness, so thickening
+  it never turns the line into a sawtooth.
+- **No mega-dictionary.** The bundled language pack is only ~1.5 MB (frequency ranks +
+  lemmatization), not the several-hundred-MB local dictionaries some other solutions require.
+
+## Installation
+
+1. Download `wordgloss.koplugin-v1.3.0.zip` (or copy this directory as-is).
+2. Extract / copy it into KOReader's `plugins/` directory. The final layout **must** be:
+
+   ```
+   <koreader>/plugins/wordgloss.koplugin/main.lua
+   <koreader>/plugins/wordgloss.koplugin/_meta.lua
+   <koreader>/plugins/wordgloss.koplugin/data/wordgloss_en.sqlite3
+   ```
+
+   By far the most common mistake is an **extra nested directory**
+   (`plugins/wordgloss.koplugin/wordgloss.koplugin/main.lua`), in which case KOReader treats
+   the plugin as non-existent.
+3. **Fully quit and restart KOReader** — not just returning to the file browser; the process
+   must actually exit.
+4. Open an EPUB → top menu → **Tools** tab → **WordGloss**.
+
+| Platform | `plugins/` location |
+| --- | --- |
+| Kindle | `/mnt/us/koreader/plugins/` |
+| Android | `/storage/emulated/0/koreader/plugins/` |
+| Linux / macOS / Windows | `koreader/plugins/` inside the KOReader directory |
+
+### The plugin doesn't show up in the menu
+
+KOReader wraps plugin instantiation in `pcall`: any exception thrown in `init()` produces no
+dialog, only a single log line, and the plugin **silently disappears**. Check in order:
+
+1. Directory layout as above (no extra nesting).
+2. Open `koreader/crash.log` and search for `wordgloss`:
+   - `Failed to initialize wordgloss plugin: ...` → the raw error thrown by `init()`;
+   - `Error when loading .../wordgloss.koplugin/main.lua` → `main.lua` never loaded at all.
+3. Did you restart the KOReader process completely? (Returning to the file browser doesn't count.)
+
+> Version 1.0.0 hit exactly this: a loop variable named `_` shadowed the gettext function
+> during menu construction, `init()` threw, and nothing appeared in the menu. Fixed in 1.0.1,
+> which also added a fallback menu entry — if menu building fails, **Tools** still shows an
+> entry that displays the reason.
+
+## Usage
+
+Menu: **top bar → Tools tab → WordGloss**. The plugin is **off** by default; switch it on
+manually once, in this order:
+
+1. **Vocabulary size (Beginner / Intermediate / Advanced)** — pick the ruler first:
+   Beginner (skip the 1,500 most common words) / Intermediate (3,000) / Advanced (5,000),
+   or a custom threshold.
+2. **Start glossing** — this is what enables annotation. You'll then be asked for a
+   translation scope: `Translate this chapter` / `Translate whole book (background)` /
+   `Use cached glosses only` / `Cancel`.
+3. Page turns now carry glosses. To turn it off, tap **Stop glossing (hide)** in the same place.
+
+| Menu item | Description |
+| --- | --- |
+| Start glossing / Stop glossing | Manual master switch. **Off by default** — the plugin never runs itself on book open. |
+| Vocabulary size | Beginner 1,500 / Intermediate 3,000 / Advanced 5,000, or a custom threshold. |
+| Gloss style | `Small text above the word` (default) or `Small text below the word` (word → underline → gloss). |
+| Gloss font size / Max gloss length / Max glosses per page | Visual density controls (when a page has too many hard words, the rarest ones win). |
+| Underline glossed words | A gloss is often wider than its word; the underline shows which word it belongs to. |
+| Underline style | Solid / dashed / wavy, plus thickness 1–6 px. |
+| Line density | Dashed and wavy only: small (sparse) / medium / large (dense) / **Custom** (2–24 px, smaller = denser). |
+| Gloss offset | Distance from word to gloss, −20…40 px. Positive = push away (upwards in "above" mode, downwards in "below" mode); negative = pull closer. |
+| Underline offset | Distance from word to underline, −20…40 px. Positive = push down/away; negative = hug the word. |
+| Skip people / places | On by default. |
+| Gloss font | Follows KOReader's CJK font; set a font name manually if you see tofu boxes. |
+| Translate words (online) | Translate current chapter / translate whole book / show progress / stop, plus the "auto-translate while reading" toggle (off by default). |
+| Clear this book's data / Clear all cached glosses | Maintenance. |
+| Status | Shows whether glossing is active, the vocabulary level, and how many glosses are cached. |
+
+`Translate this chapter / Translate whole book` pops up a collapsible progress bar (tap outside
+the window to collapse it and keep reading). The window contains only a title and the bar, and
+it repaints at most once per 2% of progress instead of flickering twice a second. Once
+translation finishes, turn the page to see the glosses. Words without a gloss simply aren't
+displayed — reading is never blocked.
+
+Both gloss modes inject a `line-height` to make room between lines, so the book is re-rendered
+once when you start or stop — that space is what the glosses are painted into; the glosses
+themselves don't consume body text area. In `Small text above the word` mode, line height is
+the **larger** of (gloss height + gloss offset) and (underline offset + line height); in
+`Small text below the word` mode both sit on the same side, so they are **summed** (clamped to
+1.5–4.0). Larger offsets, thicker lines and the wavy style therefore all grow line height
+automatically and never get clipped by adjacent lines.
+
+## Where data is stored
+
+| Data | Location |
+| --- | --- |
+| Language pack (frequency ranks + lemmatization) | `plugins/wordgloss.koplugin/data/wordgloss_en.sqlite3` |
+| Gloss cache / per-book state | `wordgloss.sqlite3` (WAL) in the KOReader data directory |
+| Prefetch progress and cancel flags | `cache/wordgloss/` in the KOReader data directory |
+| Settings | KOReader's native `settings.reader.lua` (`wordgloss_` prefix) |
+
+## How it works
+
+1. **Deciding which words are hard.**
+   The pack `data/wordgloss_en.sqlite3` has a single table `lex(word, rank, base)`:
+   `rank` is the corpus frequency rank (1 = *the*), `base` is the lemma of an inflected form
+   (`took` → `take`). The rule: normalize the token (strip punctuation, stem apostrophes,
+   ignore contraction stems like `don't`), look up the lemma's rank — a rank within the
+   threshold counts as "known" and is skipped; above the threshold, or absent from the pack,
+   it's a hard word. Words missing from the pack also fall back to suffix rules
+   (`stopped` → `stop`), and the fallback is only accepted if the result is genuinely common.
+
+2. **Fetching glosses.**
+   `wordgloss_providers.lua` calls the free Edge endpoint (batches of ≤ 12 items / ≤ 4000 bytes,
+   degrading to one-by-one if a batch fails). It translates the **lemma**, so `took` / `taken` /
+   `takes` share a single gloss. Results are trimmed by `wordgloss_gloss.lua` (first line only,
+   stray part-of-speech prefixes and parenthetical extras removed, truncated by character count,
+   leading/trailing punctuation stripped) and written to the cache; **a failed translation also
+   stores an empty record** so the same word isn't retried forever.
+
+3. **Prefetching.**
+   `wordgloss_epub.lua` unpacks the EPUB, locates chapters via the spine, and collects each
+   chapter's words with a paragraph-level scan (independent of rendering).
+   `wordgloss_prefetch.lua` translates chapter by chapter **in a child process** and writes
+   results into the cache. Progress comes back through a progress file and cancellation through
+   a sentinel file, so whole-book translation never blocks the reading UI.
+
+4. **Display.**
+   `wordgloss_page.lua` walks word by word using CREngine's `getPageXPointer` /
+   `getNextVisibleWordStart|End` / `getTextFromXPointers`, and takes screen coordinates from
+   `getScreenBoxesFromPositions`. `wordgloss_overlay.lua` registers itself as a ReaderView view
+   module and paints the gloss above the word (`Small text above the word`) or below the
+   underline (`Small text below the word`). When a line can't fit everything, the most common
+   words are dropped and the rarest kept; inter-line space comes from the injected
+   `line-height`.
+
+## Building the language pack
+
+The pack is generated by `tools/build_en_db.py` from ECDICT's `test.db` (frequency field `frq`)
+and Stardict's `lemma.en.txt` (lemmatization):
+
+```sh
+python tools/build_en_db.py --dict test.db --lemma lemma.en.txt \
+    --out data/wordgloss_en.sqlite3 --max-rank 20000
+python tools/check_pack.py     # spot-check ranks and lemmas to validate the pack
+```
+
+- Words ranked ≤ 20000 go into the pack; everything else (including words absent from the pack)
+  is treated as out-of-vocabulary.
+- Licensing: WordGloss itself is GPL-3.0; the data pack inherits its sources' licenses
+  (ECDICT MIT, Stacheldict `lemma.en.txt`) — see the notes in `data/` and `tools/`.
+
+## Tests
+
+The pure-Lua logic (hard-word detection, gloss trimming, gloss layout, paint layer,
+line-height injection, menu) runs offline — no KOReader and no Lua install needed, using
+fengari (a Lua VM in JavaScript):
+
+Tests live in **`tests/wordgloss/` at the workspace root** (not inside the plugin directory —
+that directory is treated as "runtime files only" and gets cleaned, so tests placed there keep
+disappearing). Stubs live in `tests/wordgloss/stubs/`.
+
+```sh
+# fengari runner (Lua VM inside Node)
+NODE=node                                   # or your node binary
+RUNNER=/path/to/luatest/runlua.js
+T=/absolute/path/to/tests/wordgloss         # both arguments must be absolute paths
+"$NODE" "$RUNNER" "$T" "$T/run_tests.lua"   # pure logic + paint layer: 51 assertions
+"$NODE" "$RUNNER" "$T" "$T/run_load_test.lua"   # can all 13 modules be loaded
+"$NODE" "$RUNNER" "$T" "$T/dump_menu.lua"       # print the real menu tree and labels
+```
+
+The scripts derive the workspace root from `arg[0]` and then assemble the plugin path, so they
+run on any machine with the same directory layout.
+
+`tests/run_load_test.lua` reproduces KOReader's real plugin-loading sequence
+(`dofile(main.lua)` → `pcall(plugin.new, ...)` → `registerToMainMenu`) and actually invokes
+every `text_func` / `checked_func` in the menu — it is what caught the "plugin invisible in the
+menu" bug, and it also guards 1.1.0's "never auto-run" rule (while disabled, no gloss may be
+painted and no translation may be requested). Run both suites after editing `main.lua` or
+`wordgloss_ui.lua`.
+
+`tests/dump_menu.lua` prints the real menu tree, useful for checking entry labels and order:
+
+```sh
+node runlua.js <tests/wordgloss> <tests/wordgloss>/dump_menu.lua
+```
+
+`tests/wordgloss/stubs/` holds minimal stubs of KOReader modules (generated by
+`make_stubs.py`); the test scripts add them to `package.path` themselves.
+
+## Changelog
+
+- **1.3.0** — **redrawn wavy underline** (the old one had a 4–8 px wavelength with amplitude
+  scaling with thickness, i.e. a sawtooth). Now uses custombg.koplugin's gentle style: one full
+  wave spans 12–22 px with a fixed 1–2 px amplitude (driven by wavelength only, so thickening
+  doesn't steepen it). **Line density gains a `Custom` option**: enter 2–24 px (dashed = length
+  of one dash segment, wavy = half a wave); smaller = denser. The three presets map to 11 / 6 /
+  3 px.
+- **1.2.1** — fixed **missing underline on the second line of a hyphenated word**. When a word
+  is split across two lines, CREngine returns multiple screen boxes; only the first was used,
+  so the gloss rendered fine but the underline covered just the first half. Now every box gets
+  its own line (dash/wave style, offset and thickness all apply per box); the gloss is still
+  painted once.
+- **1.2.0** — removed the "vocabulary list below paragraph" mode in favour of
+  **`Small text below the word`** (order: word → underline → gloss);
+  "Small text above the word (Word Wise style)" renamed to `Small text above the word`.
+  Underlines gain a **wavy** style, and dashed/wavy both gain **line density**
+  (small / medium / large, large = denser). Line-height calculation now splits per mode into
+  "take the larger side" vs "sum both sides", and the wave's crest and trough count toward
+  line height.
+- **1.1.0** — switched to **manual start**. The plugin is off by default and no longer runs on
+  book open; new first menu entry **Start glossing**, with vocabulary size moved to second.
+  "Prefetch words" renamed to "Translate words (online)", plus a new, off-by-default
+  "auto-translate while reading" toggle. Automatically triggered translation **no longer pops a
+  progress window** (in 1.0.x it flashed by).
+- **1.0.1** — fixed the `_`-shadowing bug in menu construction (the plugin used to vanish from
+  the menu silently); added the fallback menu and the load test.
+- **1.0.0** — first release.
+
+## Known limitations
+
+- **English only.** The frequency and lemma data is English, and tokenization splits on spaces.
+- Glosses are machine translations and **do not disambiguate senses** (polysemous words get
+  their most common meaning). They are hints, not a dictionary.
+- An internet connection is needed to fetch a gloss the first time (only the word itself is
+  sent — never the surrounding text).
+- Proper-noun filtering is a "only ever seen capitalized" heuristic; a rare word appearing just
+  once at the start of a sentence may be missed.
+- Both gloss modes change line height. If you care strongly about the book's original
+  typography, shrink the gloss font and set offsets back to 0.
+
+## Credits
+
+- The inline-gloss rendering approach follows
+  [omer-faruq/inlinehints.koplugin](https://github.com/omer-faruq/inlinehints.koplugin)
+  (AGPL-3.0): painting glosses from a ReaderView view module and injecting line height to make
+  room.
+- EPUB parsing and the `::after` overlay injection follow
+  [dualtranslate.koplugin](https://github.com/enneaa/dualtranslate.koplugin) (GPL-3.0); this
+  project's `wordgloss_tools.lua` and paragraph-scanning logic are ported from it.
+- Frequency and lemma data comes from [ECDICT](https://github.com/skywind3000/ECDICT) (MIT).
+- The vocabulary-tier idea (1,500 / 3,000 / 5,000) follows epub-rosetta's Word Wise
+  implementation, minus its two drawbacks: rewriting and re-zipping the EPUB, and depending on
+  a 790 MB local dictionary.
+
+Word Wise is an Amazon trademark. This project is not affiliated with it; the similarity is
+only in effect.
+
+## License
+
+GPL-3.0 (consistent with the projects it references and ports from).
