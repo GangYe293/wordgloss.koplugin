@@ -6,7 +6,7 @@
 
 当前版本 **1.3.0**（与 `_meta.lua` 一致）。
 
-[English](README.md) | 简体中文
+**[English](README.md) | [简体中文](README.zh-CN.md)**
 
 ## 特点
 
@@ -238,3 +238,7 @@ Word Wise 是 Amazon 的商标，本项目与之无关，只是效果上做类�
 ## 许可
 
 GPL-3.0（与所参考/移植的项目一致）。
+
+---
+
+**[English](README.md) | [简体中文](README.zh-CN.md)**

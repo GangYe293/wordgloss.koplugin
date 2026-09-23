@@ -9,7 +9,7 @@ exist only inside the plugin's own cache and paint layer.
 
 Current version: **1.3.0** (matches `_meta.lua`).
 
-[简体中文](README.zh-CN.md) | English
+**[English](README.md) | [简体中文](README.zh-CN.md)**
 
 ![version](https://img.shields.io/badge/version-1.3.0-blue)
 ![platform](https://img.shields.io/badge/platform-KOReader-green)
@@ -292,3 +292,7 @@ only in effect.
 ## License
 
 GPL-3.0 (consistent with the projects it references and ports from).
+
+---
+
+**[English](README.md) | [简体中文](README.zh-CN.md)**
