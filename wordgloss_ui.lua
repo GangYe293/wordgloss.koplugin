@@ -6,10 +6,12 @@ local InputDialog = require("ui/widget/inputdialog")
 local Notification = require("ui/widget/notification")
 local ProgressbarDialog = require("ui/widget/progressbardialog")
 local SpinWidget = require("ui/widget/spinwidget")
+local Trapper = require("ui/trapper")
 local _ = require("gettext")
 local T = require("ffi/util").template
 
 local Lexicon = require("wordgloss_lexicon")
+local Updater = require("wordgloss_update")
 
 local UI = {}
 
@@ -830,6 +832,8 @@ function UI.build_menu(plugin)
     -- 维护
     table.insert(menu, UI.clear_menu(plugin))
 
+    table.insert(menu, UI.about_menu(plugin))
+
     table.insert(menu, {
         text_func = function() return _("状态：") .. plugin:status_text() end,
         enabled_func = function() return false end,
@@ -898,6 +902,264 @@ function UI.gloss_source_menu(plugin)
         end,
         sub_item_table = items,
     }
+end
+
+------------------------------------------------------------------------
+-- 关于 / 更新
+------------------------------------------------------------------------
+
+local UPDATE_STAGES = {
+    preparing = _("准备"),
+    downloading = _("下载"),
+    checksum = _("取校验值"),
+    verifying = _("校验"),
+    extracting = _("解压"),
+    installing = _("安装"),
+    done = _("完成"),
+}
+
+function UI.format_size(bytes)
+    local size = tonumber(bytes) or 0
+    if size >= 1024 * 1024 then
+        return string.format("%.1f MB", size / (1024 * 1024))
+    end
+    if size >= 1024 then
+        return string.format("%d KB", math.floor(size / 1024 + 0.5))
+    end
+    return tostring(size) .. " B"
+end
+
+-- 更新进度窗：标题显示"阶段 xx%"，只在百分比真的往前走时重绘。
+function UI.update_progress()
+    local dialog = ProgressbarDialog:new{
+        title = _("正在更新…"),
+        subtitle = "",
+        progress_max = 100,
+        dismissable = false,
+    }
+    dialog:show()
+    UI.hide_subtitle(dialog)
+    local last = -1
+    return {
+        dialog = dialog,
+        set = function(self, stage, percent)
+            percent = math.floor(tonumber(percent) or 0)
+            if percent > 100 then percent = 100 end
+            if percent <= last then return end
+            last = percent
+            local label = UPDATE_STAGES[stage] or (stage and tostring(stage) or "")
+            pcall(function()
+                local frame = dialog[1]
+                local group = frame and frame[1]
+                if group and group[1] and group[1].setText then
+                    group[1]:setText(T(_("%1 %2%"), label, percent))
+                end
+                dialog:reportProgress(percent)
+                UIManager:setDirty(dialog, "ui")
+            end)
+        end,
+        close = function(self) UIManager:close(dialog) end,
+    }
+end
+
+--[[--
+「关于」：版本、作者、检查更新。
+
+更新是联网动作，默认不自动跑；勾上「每天检查一次」后才会在打开书时静默问
+一次 GitHub，有新版本也只是提示，装不装由用户点。
+]]
+function UI.about_menu(plugin)
+    local updater = plugin.updater
+    local items = {
+        {
+            text_func = function()
+                return _("版本：") .. tostring(plugin.VERSION or _("未知"))
+            end,
+            enabled_func = function() return false end,
+        },
+        {
+            text = _("作者：GangYe293"),
+            enabled_func = function() return false end,
+        },
+        {
+            text = "github.com/GangYe293/wordgloss.koplugin",
+            enabled_func = function() return false end,
+        },
+        {
+            text_func = function()
+                if not updater then return _("检查更新") end
+                local latest = updater:available_version()
+                if latest then
+                    return T(_("检查更新（有新版 %1）"), latest)
+                end
+                return _("检查更新")
+            end,
+            callback = function() UI.check_update(plugin) end,
+        },
+        {
+            text = _("每天自动检查一次（只提醒，不自动安装）"),
+            checked_func = function()
+                return updater ~= nil and updater:get_auto_check() == true
+            end,
+            callback = function()
+                if not updater then
+                    UI.showInfo(_("更新组件未就绪，重启 KOReader 后再试"), 3)
+                    return
+                end
+                local enabled = updater:get_auto_check() ~= true
+                updater:set_auto_check(enabled)
+                UI.showInfo(enabled
+                    and _("已开启：每天第一次打开书时检查一次更新")
+                    or _("已关闭：只在手动点「检查更新」时联网"), 3)
+            end,
+        },
+        {
+            text = _("说明：更新包来自 GitHub Release，安装前会比对 SHA-256；\n"
+                  .. "旧版本会先备份，新版本加载成功后才删备份。"),
+            enabled_func = function() return false end,
+        },
+    }
+    return {
+        text = _("关于"),
+        sub_item_table = items,
+    }
+end
+
+-- 查一次更新。silent = 自动检查（没有更新就不吭声）。
+function UI.check_update(plugin, silent)
+    local updater = plugin.updater
+    if not updater then
+        if not silent then UI.showInfo(_("更新组件未就绪，重启 KOReader 后再试"), 3) end
+        return
+    end
+    if not silent then UI.showInfo(_("正在检查更新…"), 2) end
+
+    local release, err
+    local ok, wrap_err = Trapper:wrap(function()
+        release, err = updater:fetch()
+    end)
+    if not ok then
+        if not silent then
+            UI.showInfo(_("检查更新失败：") .. tostring(wrap_err), 3)
+        end
+        return
+    end
+    if not release then
+        if silent then return end
+        UI.showInfo(_("检查更新失败：") .. tostring(err or _("网络不可用")), 3)
+        return
+    end
+    if Updater.compare_versions(release.version, updater.current_version) ~= 1 then
+        if not silent then
+            UI.showInfo(T(_("已是最新版（%1）"), updater.current_version), 3)
+        end
+        return
+    end
+    UI.offer_update(plugin, release)
+end
+
+--[[--
+问用户装哪个包。
+
+  code —— 只有代码（几十 KB）：本地已经有离线词典时用这个就够了
+  full —— 含离线词典（几 MB）：词典缺失、或想顺便换词典时用
+
+本地词典缺失时推荐 full，否则推荐 code。
+]]
+function UI.offer_update(plugin, release)
+    local assets = release.assets or {}
+    local kinds = {}
+    if assets.code then kinds[#kinds + 1] = "code" end
+    if assets.full then kinds[#kinds + 1] = "full" end
+    if #kinds == 0 then
+        UI.showInfo(_("这个版本没有可下载的安装包"), 3)
+        return
+    end
+    local preferred = (plugin:hasLocalDict() and assets.code) and "code"
+        or (assets.full and "full" or kinds[1])
+    local function label(kind)
+        local asset = assets[kind]
+        local size = asset and UI.format_size(asset.size) or ""
+        if kind == "code" then
+            return T(_("只更新代码（%1）"), size)
+        end
+        return T(_("完整包（含离线词典，%1）"), size)
+    end
+
+    local offer
+    local buttons = {}
+    local row = {}
+    for _, kind in ipairs(kinds) do
+        if kind == preferred then
+            row[#row + 1] = {
+                text = label(kind),
+                callback = function()
+                    UIManager:close(offer)
+                    UI.install_update(plugin, release, kind)
+                end,
+            }
+        end
+    end
+    for _, kind in ipairs(kinds) do
+        if kind ~= preferred then
+            row[#row + 1] = {
+                text = label(kind),
+                callback = function()
+                    UIManager:close(offer)
+                    UI.install_update(plugin, release, kind)
+                end,
+            }
+        end
+    end
+    buttons[#buttons + 1] = row
+    buttons[#buttons + 1] = {{
+        text = _("以后再说"),
+        callback = function() UIManager:close(offer) end,
+    }}
+
+    local title = T(_("发现新版本 %1（当前 %2）"), release.version,
+        plugin.updater and plugin.updater.current_version or _("未知"))
+    if release.notes and release.notes ~= "" then
+        title = title .. "\n\n" .. release.notes
+    end
+
+    offer = ButtonDialog:new{ title = title, buttons = buttons }
+    UIManager:show(offer)
+end
+
+-- 下载 → 校验 → 解压 → 备份替换。装完问一句要不要重启。
+function UI.install_update(plugin, release, kind)
+    local updater = plugin.updater
+    if not updater then
+        UI.showInfo(_("更新组件未就绪，重启 KOReader 后再试"), 3)
+        return
+    end
+    local progress = UI.update_progress()
+    local ok, err
+    Trapper:wrap(function()
+        ok, err = updater:install(release, {
+            kind = kind,
+            on_progress = function(stage, percent) progress:set(stage, percent) end,
+        })
+    end)
+    UIManager:nextTick(function()
+        progress:close()
+        if ok then
+            UI.confirm({
+                title = _("更新已安装。要现在重启 KOReader 吗？\n"
+                       .. "（不重启就还是旧版本，下次启动自动生效）"),
+                confirm_text = _("立即重启"),
+            }, function()
+                if UIManager.restartKOReader then
+                    UIManager:restartKOReader()
+                else
+                    UI.showInfo(_("请手动退出并重启 KOReader"), 4)
+                end
+            end)
+        else
+            UI.showInfo(tostring(err or _("更新失败")), 4)
+        end
+    end)
 end
 
 function UI.build_prefetch_menu(plugin)

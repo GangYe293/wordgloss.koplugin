@@ -4,7 +4,7 @@
 效果类似 Kindle 的 Word Wise。**原书一个字节都不改**——不加 ruby、不改 XHTML，
 生成的释义只存在于插件自己的缓存与渲染层里。
 
-当前版本 **1.5.0**（与 `_meta.lua` 一致）。
+当前版本 **1.6.0**（与 `_meta.lua` 一致）。
 
 **[简体中文](README.zh-CN.md) | [English](README.md)**
 
@@ -39,13 +39,18 @@
   「线的密度」（数值越小越密）。密度除小/中/大三档外还有 **自定义**（2~24 px，
   虚线 = 一段实线的长度，波浪线 = 半个波的宽度）。波浪线按 custombg 那种平缓画法：
   一个完整波 12~22 px、振幅只有 2 px，且**不跟着线粗涨**，粗细调大也不会变成锯齿。
+- **插件自带更新**：`关于 → 检查更新` 会去 GitHub Release 问一次，有新版本时
+  可选「只更新代码（几十 KB）」或「完整包（含离线词典）」，下载后**比对 SHA-256**、
+  **旧版本先备份**、装完问一句要不要重启。默认只在手动点的时候联网，
+  也可以打开「每天自动检查一次」（只提醒，不会自己装）。
 - **不依赖大词典**：随插件只有两个小包——1.5 MB 的词频包（排名 + 词形还原）和
   上面那个约 4 MB 的释义包，都是从 ECDICT 按"本插件真正会注释的词"裁出来的，
   不像某些方案需要几百 MB 的本地词典库。
 
 ## 安装
 
-1. 下载 `wordgloss.koplugin-v1.5.0.zip`（或直接用本目录）。
+1. 下载 `wordgloss-1.6.0.zip`（完整包，含离线词典）或 `wordgloss-1.6.0-code.zip`
+   （只有代码，**本地已经有词典时用它就够**），两者都在 Release 里。
 2. 解压/复制到 KOReader 的 `plugins/` 目录，最终结构必须是：
 
    ```
@@ -100,7 +105,7 @@ KOReader 用 `pcall` 包住插件实例化：`init()` 里抛任何异常都不�
    可显示的释义：昨天转过的词（哪怕是在别的书里转的）直接勾上就能显示，**不用每本
    书、每次开机都重新转换一遍**；只有一条释义都没有时才会提示先点「开始转换」。
 
-主菜单只有七个入口，所有设置都收在对应的入口里：
+主菜单只有八个入口，所有设置都收在对应的入口里：
 
 | 菜单项 | 说明 |
 | --- | --- |
@@ -110,7 +115,25 @@ KOReader 用 `pcall` 包住插件实例化：`init()` 里抛任何异常都不�
 | **下划线设置** | 下划线的所有设置，见下表。 |
 | **翻译生词（联网）** | 先有「释义来源」（本地优先 / 仅本地 / 仅在线），再是翻译当前章 / 翻译整本书 / 重新翻译整本 / 查看进度 / 停止，另有「阅读时自动补翻译生词」开关（默认关）。 |
 | **清除注释数据** | 维护用：`清除本书注释数据` / `清空全部释义缓存` / `用本地词典补齐词性（不联网）`。 |
+| **关于** | 版本号、作者、`检查更新`（见下）、`每天自动检查一次` 开关。 |
 | **状态** | 显示"是否显示注释、词汇量档位、已缓存多少条释义、当前释义来源"。 |
+
+### 更新插件
+
+`关于 → 检查更新` 做这些事（联网只读，装不装由你点）：
+
+1. 问一次 GitHub Release（直连不通时自动换 `gh-proxy` 等镜像）。
+2. 有新版本时弹出版本号与更新说明，让你选：
+   - **只更新代码**（几十 KB）：本地已经有离线词典时用这个；
+   - **完整包**（含离线词典，约 3 MB）：词典缺失、或想顺便换一份词典时用。
+3. 下载后与发布方给的 `SHA-256` 比对，对不上就当没下载过。
+4. 旧目录整个改名成 `wordgloss.koplugin.backup`，新版本换名进来——
+   **换名失败会立刻换回去**；备份留到"新版本启动成功"之后才删，
+   所以万一新版本根本加载不起来，把 `.backup` 改回 `wordgloss.koplugin` 就是原样。
+5. 装完问一句要不要重启 KOReader（不重启就还是旧版本）。
+
+「每天自动检查一次」默认关。打开后每天第一次打开书时静默问一次，
+**只提示、不自动下载**，免得读到一半被打断。
 
 **注释设置**里依次是：
 
@@ -150,6 +173,8 @@ KOReader 用 `pcall` 包住插件实例化：`init()` 里抛任何异常都不�
 | 语言包（词频排名 + 词形还原） | `plugins/wordgloss.koplugin/data/wordgloss_en.sqlite3` |
 | 释义缓存 / 每本书状态 | KOReader 数据目录 `wordgloss.sqlite3`（WAL） |
 | 预取进度与取消标记 | KOReader 数据目录 `cache/wordgloss/` |
+| 更新用的临时目录 | KOReader 数据目录 `wordgloss-update/`（用完即删，不在插件目录里） |
+| 上一次更新的备份 | `plugins/wordgloss.koplugin.backup/`（新版本启动成功后自动删） |
 | 设置 | KOReader 原生 `settings.reader.lua`（`wordgloss_` 前缀） |
 
 ## 原理
@@ -206,6 +231,35 @@ python tools/check_pack.py     # 抽查若干词的排名与词形，校验词�
   （ECDICT MIT，Stardict lemma.en.txt），见 `data/` 与 `tools/` 中的说明。
   790 MB 的原始 `test.db` **不随插件分发**，只在你电脑上当原料用。
 
+## 发布新版本
+
+`tools/release.py` 一条命令搞定打包与发布（不需要装 `gh`，走 GitHub API）：
+
+```sh
+python tools/release.py                  # 检查 + 打包 + 打印将要执行的命令（不动远程）
+python tools/release.py --execute        # 真的打 tag、push、建 Release、传包
+```
+
+默认从 `_meta.lua` 读版本号（会顺带核对 `main.lua` 里的 `VERSION`），
+产出 4 个文件到仓库的上一级目录：
+
+| 文件 | 说明 |
+| --- | --- |
+| `wordgloss-<版本>.zip` | 完整包：代码 + `data/` 离线词典（约 3 MB） |
+| `wordgloss-<版本>-code.zip` | 仅代码：不含 `data/`（约 100 KB） |
+| 两个 `.zip.sha256` | 各自的 SHA-256，插件装包前会比对 |
+
+两个 zip 的顶层目录都是 `wordgloss.koplugin/`，解压进 `plugins/` 就是正确结构
+（自动更新也按这个结构认）。`--execute` 需要 GitHub 令牌：
+
+1. https://github.com/settings/tokens → **Generate new token (classic)**
+2. 勾选 `public_repo`
+3. `set GITHUB_TOKEN=ghp_xxx`（PowerShell 用 `$env:GITHUB_TOKEN="ghp_xxx"`），
+   或者直接 `python tools/release.py --execute --token ghp_xxx`
+
+发布前脚本会检查：工作区干净、在 `main` 分支、没有未推送的提交、远端没有同名 tag。
+任一项不过就只打包、不发布。
+
 ## 测试
 
 纯 Lua 逻辑（生词判定、释义精简、注释排布、绘制层、行距注入、菜单）
@@ -219,8 +273,8 @@ python tools/check_pack.py     # 抽查若干词的排名与词形，校验词�
 NODE=node                                       # 或你的 node 可执行文件
 RUNNER=/path/to/luatest/runlua.js
 T=/absolute/path/to/tests/wordgloss             # 两个参数都要绝对路径
-"$NODE" "$RUNNER" "$T" "$T/run_tests.lua"       # 纯逻辑 + 绘制层 + 菜单 + 离线词典：139 项
-"$NODE" "$RUNNER" "$T" "$T/run_load_test.lua"   # 13 个模块能否装载
+"$NODE" "$RUNNER" "$T" "$T/run_tests.lua"       # 纯逻辑 + 绘制层 + 菜单 + 离线词典 + 更新：213 项
+"$NODE" "$RUNNER" "$T" "$T/run_load_test.lua"   # 16 个模块能否装载
 "$NODE" "$RUNNER" "$T" "$T/dump_menu.lua"       # 打印真实菜单层级与文案
 ```
 
@@ -243,6 +297,16 @@ node runlua.js <tests/wordgloss> <tests/wordgloss>/dump_menu.lua
 
 ## 版本变化
 
+- **1.6.0**：**插件可以自己更新了**。菜单新增 `关于`：显示版本号与作者，
+  `检查更新` 会去 GitHub Release 问一次（直连不通时依次换 `gh-proxy` 等镜像），
+  可选「只更新代码」或「完整包（含离线词典）」。流程是
+  **下载 → 比对 SHA-256 → 解压到插件目录之外 → 旧版本改名备份 → 新版本换名进来**；
+  换名失败立刻回滚，备份要留到"新版本下一次成功启动"才删（新版本加载不起来时
+  把 `wordgloss.koplugin.backup` 改回来即可）。装完问一句要不要重启。
+  「每天自动检查一次」默认关，打开后只提醒、不自动下载。
+  更新用的 `wordgloss_update.lua` 与自带的 SHA-256 实现 `wordgloss_sha2.lua` 不依赖
+  任何第三方库，只用到 KOReader 自带的 `socket.http` / `json` / `ffi-archiver`。
+  发布流程见 `tools/release.py`（打包 + 打 tag + 建 Release 一条龙）。
 - **1.5.0**：**加入离线本地词典，联网降级为兜底**。随插件分发一份裁剪过的 ECDICT 释义包
   （`data/wordgloss_gloss_en.sqlite3`，约 4 MB）：41,145 个原形 + 35,863 个变形，
   **92% 带词性**。预取时先查本地，只有本地没有的词才发给 Edge，整本书几秒钟翻完，

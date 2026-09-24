@@ -10,6 +10,8 @@
 --   wordgloss_epub.lua       EPUB 章节/段落解析（预取需要）
 --   wordgloss_cache.lua      释义缓存与每本书状态（SQLite/WAL）
 --   wordgloss_ui.lua         菜单与对话框
+--   wordgloss_update.lua     自动更新（GitHub Release，校验后替换插件目录）
+--   wordgloss_sha2.lua       SHA-256（只给更新包校验用）
 
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
@@ -24,12 +26,16 @@ local Dict = require("wordgloss_dict")
 local Page = require("wordgloss_page")
 local Overlay = require("wordgloss_overlay")
 local Prefetch = require("wordgloss_prefetch")
+local Updater = require("wordgloss_update")
 local UI = require("wordgloss_ui")
 
 local wordgloss = WidgetContainer:extend{
     name = "wordgloss",
     is_doc_only = false,
 }
+
+-- 与 _meta.lua 里的 version 保持一致：菜单「关于」显示它，更新器拿它比大小。
+wordgloss.VERSION = "1.6.0"
 
 local SETTING_PREFIX = "wordgloss_"
 local AUTO_PREFETCH_COOLDOWN = 30   -- 自动预取的两次尝试之间至少间隔多少秒
@@ -69,6 +75,17 @@ function wordgloss:init()
         if G_reader_settings and not G_reader_settings:readSetting(SETTING_PREFIX .. "silent_network") then
             G_reader_settings:saveSetting(SETTING_PREFIX .. "silent_network", true)
         end
+
+        -- 更新器先建好：菜单「关于」要用它显示版本与检查更新。
+        self.updater = Updater:new{
+            settings = G_reader_settings,
+            current_version = self.VERSION,
+            plugin_dir = self.path,
+        }
+        -- 上一次更新留下的备份，现在可以删了：能跑到 init 末尾说明新版本
+        -- 加载成功；这一行绝不能提前，否则新版本一崩就没得回滚。
+        self.updater:cleanup_backup()
+        self:schedule_auto_update_check()
     end)
     if not ok then
         self._init_error = tostring(err)
@@ -864,6 +881,25 @@ function wordgloss:show_prefetch_progress()
     UI.showInfo(T(_("章节 %1/%2，已翻译 %3，无译文 %4"),
         progress.chapters_done, progress.chapters_total,
         progress.translated, progress.failed), 4)
+end
+
+------------------------------------------------------------------------
+-- 更新
+------------------------------------------------------------------------
+
+--[[--
+每天第一次打开时静默问一次 GitHub（默认关）。
+
+只提醒、不自动下载：阅读中突然弹个下载窗很打断人。查到新版就显示一条提示，
+装不装由用户到「关于 → 检查更新」里点。
+]]
+function wordgloss:schedule_auto_update_check()
+    if not self.updater then return end
+    if not self.updater:should_auto_check() then return end
+    UIManager:scheduleIn(10, function()
+        if not self.updater then return end
+        UI.check_update(self, true)
+    end)
 end
 
 ------------------------------------------------------------------------
