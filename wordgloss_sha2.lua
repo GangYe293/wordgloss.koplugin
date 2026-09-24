@@ -26,89 +26,139 @@ local band, bor, bxor, bnot, lshift, rshift
 local POW32 = 4294967296        -- 2^32
 local MASK32 = 4294967295       -- 2^32 - 1
 
--- 探测方式：把一小段带原生位运算符的代码丢给编译器，能编过就说明是 5.3+。
--- （5.1 里 load 叫 loadstring，取一下兼容。）
+-- 5.1 里 load 叫 loadstring，取一下兼容。
 local chunk = loadstring or load
-local native_ok = false
-if chunk then
-    native_ok = pcall(chunk("local a = 7 & 3; local b = 1 << 2; return a + b"))
+
+--[[--
+**为什么原生位运算符只能放在字符串里编译，不能直接写进源码**
+
+Kindle 上的 KOReader 跑的是 LuaJIT（Lua 5.1 语法）。Lua 是"先解析整份文件、再执行"，
+所以源码里只要出现一个裸的 `&`，LuaJIT 在**解析期**就会报
+`'end' expected near '&'`，整个模块加载失败——哪怕那段代码永远轮不到执行。
+
+曾经就是这么写的，结果插件在真机上整个消失。现在改成：把带运算符的源码当字符串
+交给 load 编译，编不过就自动退回 bit 库，永远不会因为语法而加载失败。
+]]
+local function make_native_ops()
+    if not chunk then return nil end
+    -- 还得整数装得下 32 位无符号：有些实现的整数只到 2^31-1，一运算就变 float。
+    if (math.maxinteger or 0) <= 2147483647 then return nil end
+    local source = [[
+        local MASK = 4294967295
+        return {
+            band = function(a, b) return a & b end,
+            bor = function(a, b) return a | b end,
+            bxor = function(a, b) return a ~ b end,
+            bnot = function(a) return ~a & MASK end,
+            lshift = function(a, n) return (a << n) & MASK end,
+            rshift = function(a, n) return a >> n end,
+        }
+    ]]
+    local factory = chunk(source)
+    if not factory then return nil end
+    local ok, ops = pcall(factory)
+    if not ok or type(ops) ~= "table" or not ops.band then return nil end
+    return ops
 end
 
-local ok_bit32, bit32 = pcall(require, "bit32")
-local ok_bit, bit = pcall(require, "bit")
-local lib = ok_bit32 and bit32 or (ok_bit and bit or nil)
-
--- 原生位运算符要能用，还得整数装得下 32 位无符号：有些 Lua 的整数只到
--- 2^31-1，0xFFFFFFFF 一进去就变成 float，位运算直接报错。
-local native_usable = native_ok and (math.maxinteger or 0) > 2147483647
-
-if lib and lib.band then
-    -- KOReader 上是 LuaJIT 的 bit 库：运算本身是原生的，只是返回值可能是
-    -- "有符号"那一套，所以取反之后统一拉回 0..2^32-1。
-    band = lib.band
-    bor = lib.bor
-    bxor = lib.bxor
-    lshift = lib.lshift
-    rshift = lib.rshift
-    bnot = function(a)
-        local value = lib.bnot(a) % POW32
-        if value < 0 then value = value + POW32 end
-        return value
-    end
-elseif native_usable then
-    -- Lua 5.3+：整数运算是 64 位的，取反与左移后必须自己截到 32 位。
-    band = function(a, b) return a & b end
-    bor = function(a, b) return a | b end
-    bxor = function(a, b) return a ~ b end
-    bnot = function(a) return ~a & MASK32 end
-    lshift = function(a, n) return (a << n) & MASK32 end
-    rshift = function(a, n) return (a >> n) & MASK32 end
-else
-    -- 兜底：逐位模拟。只在没有 bit 库、整数又装不下 32 位无符号时出现。
-    -- （离线测试用的 Lua 就是这种，测试桩里另有 bit.lua 走上面那条路。）
-    local MASK = MASK32
-    local MOD = POW32
-    local function norm(x)
-        x = x % MOD
-        return x
-    end
-    band = function(a, b)
-        a, b = norm(a), norm(b)
-        local out, place = 0, 1
-        for _ = 0, 31 do
-            local ab, bb = a % 2, b % 2
-            if ab == 1 and bb == 1 then out = out + place end
-            a, b = (a - ab) / 2, (b - bb) / 2
-            place = place * 2
-        end
-        return out
-    end
-    bor = function(a, b)
-        a, b = norm(a), norm(b)
-        local out, place = 0, 1
-        for _ = 0, 31 do
-            local ab, bb = a % 2, b % 2
-            if ab == 1 or bb == 1 then out = out + place end
-            a, b = (a - ab) / 2, (b - bb) / 2
-            place = place * 2
-        end
-        return out
-    end
-    bxor = function(a, b)
-        a, b = norm(a), norm(b)
-        local out, place = 0, 1
-        for _ = 0, 31 do
-            local ab, bb = a % 2, b % 2
-            if ab ~= bb then out = out + place end
-            a, b = (a - ab) / 2, (b - bb) / 2
-            place = place * 2
-        end
-        return out
-    end
-    bnot = function(a) return MASK - norm(a) end
-    lshift = function(a, n) return norm(norm(a) * (2 ^ n)) end
-    rshift = function(a, n) return math.floor(norm(a) / (2 ^ n)) end
+-- bit32（Lua 5.2）/ bit（LuaJIT 自带）
+local function make_bitlib_ops()
+    local ok_bit32, bit32 = pcall(require, "bit32")
+    local ok_bit, bit = pcall(require, "bit")
+    local lib = ok_bit32 and bit32 or (ok_bit and bit or nil)
+    if not lib or not lib.band then return nil end
+    return {
+        band = lib.band,
+        bor = lib.bor,
+        bxor = lib.bxor,
+        lshift = lib.lshift,
+        rshift = lib.rshift,
+        -- bit 库的取反返回"有符号"那一套（bnot(0) == -1），统一拉回 0..2^32-1。
+        bnot = function(a)
+            local value = lib.bnot(a) % POW32
+            if value < 0 then value = value + POW32 end
+            return value
+        end,
+    }
 end
+
+-- 兜底：逐位模拟。只在没有 bit 库、又不是 5.3 的环境里出现（慢，但结果一样）。
+local function make_pure_ops()
+    local MASK, MOD = MASK32, POW32
+    local function norm(x) return x % MOD end
+    local function bit_at(a, b)
+        local ab, bb = a % 2, b % 2
+        return ab, bb
+    end
+    local function walk(a, b, keep)
+        a, b = norm(a), norm(b)
+        -- 写成 0.0 / 1.0：place 会一路乘到 2^31，在整数只有 32 位的 Lua 上
+        -- 用整数累加会直接溢出成负数，浮点则能精确表示到 2^53。
+        local out, place = 0.0, 1.0
+        for _ = 0, 31 do
+            local ab, bb = bit_at(a, b)
+            if keep(ab, bb) then out = out + place end
+            a, b = (a - ab) / 2, (b - bb) / 2
+            place = place * 2
+        end
+        return out
+    end
+    return {
+        band = function(a, b) return walk(a, b, function(x, y) return x == 1 and y == 1 end) end,
+        bor = function(a, b) return walk(a, b, function(x, y) return x == 1 or y == 1 end) end,
+        bxor = function(a, b) return walk(a, b, function(x, y) return x ~= y end) end,
+        bnot = function(a) return MASK - norm(a) end,
+        -- 一次移一位、每步都取模：直接乘 2^n 会产生 ~2^64 的中间值，
+        -- 双精度浮点存不下（>2^53 就开始丢位），移出来就是错的。
+        lshift = function(a, n)
+            a = norm(a)
+            for _ = 1, n do a = (a * 2) % MOD end
+            return a
+        end,
+        rshift = function(a, n)
+            a = norm(a)
+            for _ = 1, n do a = math.floor(a / 2) end
+            return a
+        end,
+    }
+end
+
+local function pick_ops(forced)
+    if forced ~= "bitlib" and forced ~= "pure" then
+        local native = make_native_ops()
+        if native then return native, "native" end
+    end
+    if forced ~= "pure" then
+        local bitlib = make_bitlib_ops()
+        if bitlib then return bitlib, "bitlib" end
+    end
+    return make_pure_ops(), "pure"
+end
+
+-- 主循环里会出现 bxor(a, b, c) 这种三参数写法，而不同后端的多参数支持并不一致
+-- （bit32 / LuaJIT 的 bit 支持，5.3 原生写成两个参数就不支持）。统一折叠成两两运算，
+-- 免得换个环境就算错。
+local function fold(op)
+    return function(...)
+        local count = select("#", ...)
+        if count <= 2 then return op(...) end
+        local acc = select(1, ...)
+        for index = 2, count do
+            acc = op(acc, (select(index, ...)))
+        end
+        return acc
+    end
+end
+
+-- 换后端（测试用：真机走的是 bit 分支，必须单独验证一遍）。
+local function apply_backend(name)
+    local ops, name_got = pick_ops(name)
+    band, bor, bxor = fold(ops.band), fold(ops.bor), fold(ops.bxor)
+    bnot, lshift, rshift = ops.bnot, ops.lshift, ops.rshift
+    Sha2._backend = name_got
+    return name_got
+end
+apply_backend()
 
 -- 32 位加法：所有输入都在 0..2^32-1 内，和可能溢出，取模截回。
 local function add32(...)
@@ -259,7 +309,9 @@ function Sha2.verify_file(path, expected)
     return got:lower() == want:lower(), got
 end
 
-Sha2._backend = (lib and lib.band) and "bitlib"
-    or (native_usable and "native" or "fallback")
+-- 供测试强制切换后端：_use_backend("bitlib") 走真机那条路，不给参数就回到自动选择。
+function Sha2._use_backend(name)
+    return apply_backend(name)
+end
 
 return Sha2

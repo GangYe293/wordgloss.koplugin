@@ -116,6 +116,66 @@ def write_checksum(zip_path):
     return checksum_path
 
 
+def check_lua51_syntax(plugin_dir):
+    """Lua 5.1 语法体检：KOReader 跑的是 LuaJIT（5.1 语法）。
+
+    5.3 才有的运算符（& | ~ << >> //）只要有一个裸写在源码里，LuaJIT 在**解析期**
+    就会报错，整个插件加载失败、菜单里直接消失——而且运行时根本轮不到那行代码也一样。
+    （真出过这事：sha2 里写了 `a & b`，插件在 Kindle 上整个不见了。）
+    所以这些运算符只允许出现在长字符串里、靠 load 运行时编译。
+    """
+    long_bracket = re.compile(r"\[(=*)\[")
+    # 注释与字符串已经抹掉了，剩下的 & | ~ << >> // 就一定是运算符。
+    # 注意别写成要求"& 后面紧跟字符"——`1 & 2` 这种带空格的写法最常用。
+    patterns = [(r"//", "floor division"),
+                (r"<<", "left shift"), (r">>", "right shift"),
+                (r"&", "bitwise and"), (r"\|", "bitwise or"),
+                (r"~[^=]", "bitwise not/xor")]
+    problems = []
+    for path in sorted(plugin_dir.rglob("*.lua")):
+        src = path.read_text(encoding="utf-8")
+        # 先抹掉注释与字符串：长注释/长字符串要按整份文件处理，不能逐行。
+        cleaned = []
+        i, n = 0, len(src)
+        while i < n:
+            if src.startswith("--", i):
+                m = long_bracket.match(src, i + 2)
+                if m:                                    # --[[ ... ]]
+                    close = "]" + m.group(1) + "]"
+                    j = src.find(close, i + m.end())
+                    i = n if j < 0 else j + len(close)
+                else:                                    # -- 到行尾
+                    j = src.find("\n", i)
+                    i = n if j < 0 else j
+                cleaned.append("\n")
+                continue
+            m = long_bracket.match(src, i)
+            if m:                                        # [[ ... ]] 字符串
+                close = "]" + m.group(1) + "]"
+                j = src.find(close, i + m.end())
+                cleaned.append("''")
+                i = n if j < 0 else j + len(close)
+                continue
+            if src[i] in "\"'":
+                quote = src[i]
+                j = i + 1
+                while j < n and src[j] != quote:
+                    j += 2 if src[j] == "\\" else 1
+                cleaned.append("''")
+                i = min(j + 1, n)
+                continue
+            cleaned.append(src[i])
+            i += 1
+        text = "".join(cleaned)
+        for line_no, line in enumerate(text.splitlines(), 1):
+            for pattern, label in patterns:
+                if re.search(pattern, line):
+                    problems.append("%s:%d 用了 Lua 5.1 不认识的 %s -> %s"
+                                    % (path.name, line_no, label, line.strip()[:70]))
+                    break
+    return problems
+
+
 def git_checks(repo_dir, version, branch="main"):
     """发布前该确认的事。返回 (问题列表)。"""
     problems = []
@@ -252,6 +312,17 @@ def main():
         raise SystemExit("main.lua 里的 VERSION 是 %s，和 %s 不一致" % (main_version, version))
 
     problems = [] if args.skip_checks else git_checks(repo_dir, version, args.branch)
+
+    # Lua 5.1 语法体检：这类问题在离线测试里发现不了（测试环境是 5.3），
+    # 到真机上却是"插件整个消失"，所以每次打包都必须扫一遍。
+    lua_problems = check_lua51_syntax(plugin_dir)
+    if lua_problems:
+        log("\n[!] 源码里有 Lua 5.1（LuaJIT）解析不了的写法，到 Kindle 上插件会加载失败：")
+        for problem in lua_problems:
+            log("  - " + problem)
+        raise SystemExit("\n先把 5.3 专有运算符挪进长字符串、改用 load 运行时编译。")
+    log("Lua 5.1 语法体检：通过")
+
     if problems:
         log("\n[!] 发布前的检查没过：")
         for problem in problems:

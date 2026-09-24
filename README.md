@@ -315,7 +315,7 @@ disappearing). Stubs live in `tests/wordgloss/stubs/`.
 NODE=node                                   # or your node binary
 RUNNER=/path/to/luatest/runlua.js
 T=/absolute/path/to/tests/wordgloss         # both arguments must be absolute paths
-"$NODE" "$RUNNER" "$T" "$T/run_tests.lua"   # pure logic + paint layer + menu + offline dict + updater: 217 assertions
+"$NODE" "$RUNNER" "$T" "$T/run_tests.lua"   # pure logic + paint layer + menu + offline dict + updater: 222 assertions
 "$NODE" "$RUNNER" "$T" "$T/run_load_test.lua"   # can all 16 modules be loaded
 "$NODE" "$RUNNER" "$T" "$T/dump_menu.lua"       # print the real menu tree and labels
 ```

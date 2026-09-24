@@ -275,7 +275,7 @@ python tools/release.py --execute        # 真的打 tag、push、建 Release、
 NODE=node                                       # 或你的 node 可执行文件
 RUNNER=/path/to/luatest/runlua.js
 T=/absolute/path/to/tests/wordgloss             # 两个参数都要绝对路径
-"$NODE" "$RUNNER" "$T" "$T/run_tests.lua"       # 纯逻辑 + 绘制层 + 菜单 + 离线词典 + 更新：217 项
+"$NODE" "$RUNNER" "$T" "$T/run_tests.lua"       # 纯逻辑 + 绘制层 + 菜单 + 离线词典 + 更新：222 项
 "$NODE" "$RUNNER" "$T" "$T/run_load_test.lua"   # 16 个模块能否装载
 "$NODE" "$RUNNER" "$T" "$T/dump_menu.lua"       # 打印真实菜单层级与文案
 ```
