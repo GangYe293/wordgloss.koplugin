@@ -20,6 +20,7 @@ local T = require("ffi/util").template
 local Cache = require("wordgloss_cache")
 local Book = require("wordgloss_book")
 local Lexicon = require("wordgloss_lexicon")
+local Dict = require("wordgloss_dict")
 local Page = require("wordgloss_page")
 local Overlay = require("wordgloss_overlay")
 local Prefetch = require("wordgloss_prefetch")
@@ -55,6 +56,9 @@ function wordgloss:init()
     local ok, err = pcall(function()
         self.cache = Cache:new()
         self.lexicon = Lexicon:new(self.path)
+        -- 离线释义包（ECDICT 裁剪版）。文件缺失时它只是查不到东西，
+        -- 不会让插件失效：联网翻译照旧工作。
+        self.dict = Dict:new(self.path)
         self.book = Book:new(self.cache)
         self.prefetch = Prefetch:new(self)
         self._page_refresh_scheduled = false
@@ -201,6 +205,36 @@ end
 
 function wordgloss:isVisible()
     return self:isEnabled() and self:showGlosses()
+end
+
+--[[--
+「显示词性」：要不要在注释前面带上 adj. / n. / vt. 这样的缩写。
+
+默认关（1.1.9 起）。词性只有离线释义包能稳定提供，在线接口实测不返回，
+所以打开后同一页会出现"有的带、有的不带"——这正是设计意图：
+**有就带着，没有就空着**，不为了整齐去编一个。
+]]
+function wordgloss:showPos()
+    return self:getSetting("show_pos", false) == true
+end
+
+--[[--
+释义来源：local_first（默认）/ local_only / online_only。
+
+local_first 先用随插件分发的离线释义包，本地没有的词再走在线翻译——
+断网也能翻完整本书，联网只是用来补齐生造词、人名地名这些词典里没有的。
+]]
+function wordgloss:getGlossSource()
+    local mode = self:getSetting("gloss_source", "local_first")
+    if mode == "local_only" or mode == "online_only" then return mode end
+    return "local_first"
+end
+
+-- 离线释义包有没有随插件装上。状态行与「补齐词性」都要先问它。
+function wordgloss:hasLocalDict()
+    if not self.dict then return false end
+    local ok, ready = pcall(function() return self.dict:available() end)
+    return ok and ready == true
 end
 
 --[[--
@@ -702,6 +736,7 @@ function wordgloss:refreshGlosses(force)
             names = names,
             lang = self:getGlossLangKey(),
             max_per_page = tonumber(self:getSetting("max_per_page", 6)) or 6,
+            show_pos = self:showPos(),
         })
     self._lower_dirty = true
     local ok, font_size = pcall(function() return document:getFontSize() end)
@@ -754,6 +789,8 @@ function wordgloss:prefetch_options(silent)
         rank_limit = self:getRankLimit(),
         max_gloss_chars = tonumber(self:getSetting("max_gloss_chars", 12)) or 12,
         max_items = tonumber(self:getSetting("gloss_max_items", 2)) or 2,
+        -- 释义来源：本地优先 / 仅本地 / 仅在线（默认本地优先）
+        gloss_source = self:getGlossSource(),
         silent = silent,
     }
 end
@@ -851,6 +888,34 @@ function wordgloss:clear_gloss_cache()
     UI.showInfo(T(_("已清空 %1 条释义缓存"), count))
 end
 
+--[[--
+用离线释义包给已有的释义补上词性（完全不联网）。
+
+老缓存里的释义是当年清洗时剥掉词性后存下来的，pos 列是空的。补词性只写
+pos 一列、不动释义本身，所以不用重新翻译、不用联网，几秒就能跑完几万条。
+
+返回 (补齐条数, 待补总数)；离线释义包不可用时返回 (nil, nil)。
+]]
+function wordgloss:backfill_pos()
+    if not self:is_usable() then return nil, nil end
+    if not self:hasLocalDict() then return nil, nil end
+    local lang = self:getGlossLangKey()
+    local rows = self.cache:glosses_without_pos(lang, 20000)
+    if #rows == 0 then return 0, 0 end
+    local words = {}
+    for _, row in ipairs(rows) do words[#words + 1] = row.word end
+    local hits = self.dict:lookup_all(words) or {}
+    local filled = 0
+    for _, row in ipairs(rows) do
+        local entry = hits[row.word]
+        if entry and entry.pos and entry.pos ~= "" then
+            self.cache:putGloss(row.word, lang, row.gloss, entry.pos)
+            filled = filled + 1
+        end
+    end
+    return filled, #rows
+end
+
 -- 状态行：一眼看出"有没有开始、用哪一档词汇量、攒了多少释义"。
 -- 还没开始时直接把入口写出来，省得用户找菜单。
 function wordgloss:status_text()
@@ -875,8 +940,17 @@ function wordgloss:status_text()
     if not self.lexicon:available() then
         return T(_("%1；词频包不可用；释义缓存 %2 条"), state, count)
     end
-    return T(_("%1；词汇量 %2；释义缓存 %3 条"),
-        state, self:getLevelLabel(), count)
+    local source = ({
+        local_first = _("本地优先"),
+        local_only = _("仅本地"),
+        online_only = _("仅在线"),
+    })[self:getGlossSource()]
+    if not self:hasLocalDict() then
+        return T(_("%1；词汇量 %2；释义缓存 %3 条；离线词典缺失"),
+            state, self:getLevelLabel(), count)
+    end
+    return T(_("%1；词汇量 %2；释义缓存 %3 条；释义来源 %4"),
+        state, self:getLevelLabel(), count, source)
 end
 
 return wordgloss

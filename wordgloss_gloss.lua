@@ -191,12 +191,15 @@ end
 --[[--
 把一条原始译文压成短注释。
 
-  raw       —— 在线接口返回的原文
+  raw       —— 在线接口返回的原文，或离线释义包里的 meaning
   max_chars —— 最多保留多少字符（默认 12）
   max_items —— 最多保留几个义项（默认 2）
   source    —— 被翻译的原词（用于识别"原样返回"的情况）
 
-返回短注释字符串，或 nil（没有可用内容）。
+返回 (短注释, 词性)：短注释为 nil 表示没有可用内容。
+词性是开头剥下来的那个标签（"adj."）；开头没有词性标注时为 nil——
+离线释义包的词性在自己的 pos 列里，不走这里，由调用方直接带上。
+旧调用方只取第一个返回值，多返回一个不会破坏它们。
 ]]
 function Gloss.clean(raw, max_chars, max_items, source)
     if not raw or raw == "" then return nil end
@@ -206,6 +209,10 @@ function Gloss.clean(raw, max_chars, max_items, source)
     local text = tostring(raw)
     text = text:match("^([^\r\n]*)") or text        -- 只取第一行
     text = collapse_spaces(text)
+    -- 只认开头的第一个标签当词性；后面再出现的（"n. vt. 放弃"）一律当噪声剥掉。
+    local pos = nil
+    local label, rest = take_pos_prefix(text)
+    if label then pos = label end
     text = strip_pos_prefix(text)
     text = remove_brackets(text)
     text = collapse_spaces(text)
@@ -237,7 +244,7 @@ function Gloss.clean(raw, max_chars, max_items, source)
     if source and source ~= "" and not Gloss.has_cjk(result) then
         if result:lower() == source:lower() then return nil end
     end
-    return result
+    return result, pos
 end
 
 return Gloss

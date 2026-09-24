@@ -21,6 +21,7 @@ local Epub = require("wordgloss_epub")
 local GlossMod = require("wordgloss_gloss")
 local Lexicon = require("wordgloss_lexicon")
 local Providers = require("wordgloss_providers")
+local Dict = require("wordgloss_dict")
 
 local Prefetch = {}
 
@@ -51,12 +52,20 @@ local function default_deps(plugin_path)
     return {
         cache = cache,
         lexicon = Lexicon:new(plugin_path),
+        dict = Dict:new(plugin_path),
         book = Book:new(cache),
         tools = Tools,
         epub = Epub,
         gloss = GlossMod,
         providers = Providers,
     }
+end
+
+-- 释义来源三档：本地优先 / 仅本地 / 仅在线。
+local function source_flags(mode)
+    if mode == "local_only" then return true, false end
+    if mode == "online_only" then return false, true end
+    return true, true      -- local_first（默认）：本地命中就不再联网
 end
 
 -- 取消哨兵文件存在即代表用户要求停止。io.open 在个别平台上不可用，
@@ -75,9 +84,10 @@ end
 args 必须能被子进程直接读到（都是普通字符串/数字）：
   plugin_path, book_path, book_id, source_lang, target_lang,
   rank_limit, max_gloss_chars, max_items,
+  gloss_source（"local_first" / "local_only" / "online_only"，缺省按 local_first），
   first_index, last_index, progress_path, cancel_path
 
-deps 可注入（测试用）：cache / lexicon / book / tools / epub / gloss / providers，
+deps 可注入（测试用）：cache / lexicon / dict / book / tools / epub / gloss / providers，
 以及 cancelled 回调（返回 true 表示应当中止）。
 
 返回一个可序列化的 summary 表。
@@ -91,9 +101,10 @@ function Prefetch.run_worker(args, deps)
     local book_id = args.book_id
 
     local summary = {
-        state = "running", translated = 0, failed = 0,
+        state = "running", translated = 0, failed = 0, local_hits = 0,
         chapters_done = 0, chapters_total = 0, current_index = tonumber(args.first_index) or 1,
     }
+    local use_local, use_online = source_flags(args.gloss_source)
 
     -- 词频包是生词判定的数据源：读不到时 classify 会把所有词当成生词，
     -- 导致整本书被过度翻译。这里提前失败并给出清晰信息，而不是默默翻错。
@@ -201,7 +212,38 @@ function Prefetch.run_worker(args, deps)
         end
 
         logger.dbg("wordgloss: chapter", index, "candidates=", #rare, "missing=", #missing)
-        if #missing > 0 and not cancelled() then
+
+        -- 2a. 离线释义包：命中就直接写缓存（连词性一起），剩下的才需要联网。
+        --     整个包是随插件分发的本地 SQLite，几万个词也就几百毫秒，
+        --     比逐个词发网络请求快几个数量级，而且断网也能翻完整本书。
+        if use_local and #missing > 0 and deps.dict then
+            local keys = {}
+            for position, item in ipairs(missing) do keys[position] = item.key end
+            local hits = deps.dict:lookup_all(keys) or {}
+            if next(hits) then
+                local remaining = {}
+                for _, item in ipairs(missing) do
+                    local entry = hits[item.key] or hits[item.text]
+                    if entry then
+                        -- 本地释义也要按当前的"释义长度上限/义项上限"裁一遍，
+                        -- 这样离线和在线出来的注释长度是一致的。
+                        local text = gloss_mod.clean(entry.meaning, args.max_gloss_chars,
+                            args.max_items, item.text)
+                        cache:putGloss(item.key, cache_lang, text or "", entry.pos)
+                        if text then summary.local_hits = summary.local_hits + 1
+                        else summary.failed = summary.failed + 1 end
+                    else
+                        remaining[#remaining + 1] = item
+                    end
+                end
+                missing = remaining
+                logger.dbg("wordgloss: chapter", index, "local hits=", summary.local_hits,
+                    "still missing=", #missing)
+            end
+        end
+
+        -- 2b. 在线兜底：本地没查到的词（生造词、人名地名、新潮词）才走 Edge。
+        if #missing > 0 and use_online and not cancelled() then
             local texts = {}
             for position, item in ipairs(missing) do texts[position] = item.text end
             local since_write = 0
@@ -209,9 +251,11 @@ function Prefetch.run_worker(args, deps)
                 function(position, text, translation)
                     local item = missing[position]
                     if not item then return end
-                    local clean = gloss_mod.clean(translation, args.max_gloss_chars, args.max_items, text)
+                    -- 在线接口不返回词性，所以 pos 基本是 nil（有就带着，没有就空着）。
+                    local clean, pos = gloss_mod.clean(translation, args.max_gloss_chars,
+                        args.max_items, text)
                     -- 失败也存一条空记录：下次不会再问同一个词
-                    cache:putGloss(item.key, cache_lang, clean or "")
+                    cache:putGloss(item.key, cache_lang, clean or "", pos)
                     if clean then summary.translated = summary.translated + 1
                     else summary.failed = summary.failed + 1 end
                     since_write = since_write + 1
@@ -221,6 +265,12 @@ function Prefetch.run_worker(args, deps)
                     end
                 end,
                 cancelled)
+        elseif #missing > 0 and not use_online then
+            -- 仅本地模式：没查到的词也记一条空记录，免得每次翻页重试。
+            for _, item in ipairs(missing) do
+                cache:putGloss(item.key, cache_lang, "")
+            end
+            summary.failed = summary.failed + #missing
         end
 
         book:mark_covered(book_id, index)

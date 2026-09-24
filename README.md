@@ -7,11 +7,11 @@ WordGloss annotates difficult words with a short Chinese meaning printed directl
 book by a single byte**. No `<ruby>` tags are injected, no XHTML is rewritten; the glosses
 exist only inside the plugin's own cache and paint layer.
 
-Current version: **1.4.1** (matches `_meta.lua`).
+Current version: **1.5.0** (matches `_meta.lua`).
 
 **[English](README.md) | [简体中文](README.zh-CN.md)**
 
-![version](https://img.shields.io/badge/version-1.4.1-blue)
+![version](https://img.shields.io/badge/version-1.5.0-blue)
 ![platform](https://img.shields.io/badge/platform-KOReader-green)
 ![license](https://img.shields.io/badge/license-GPL--3.0-orange)
 
@@ -30,9 +30,22 @@ Current version: **1.4.1** (matches `_meta.lua`).
 - **Vocabulary levels.** Beginner / Intermediate / Advanced decide *which* words are worth
   glossing, based on corpus frequency rank (Beginner = skip the most common 1,500 words,
   Intermediate 3,000, Advanced 5,000). A custom threshold is also available.
-- **Glosses via the free Microsoft Edge endpoint.** No API key required. Translations are
-  cached in SQLite and reused across books — each word is translated once, after which page
-  turns are instant and offline.
+- **Offline local dictionary (default).** A trimmed ECDICT pack (~4 MB) ships inside the
+  plugin: 41,145 headwords + 35,863 inflections, **92% with a part-of-speech tag**. It covers
+  **100% of the plugin's own 39,301-word vocabulary list** (51% directly, 49% through the
+  inflection table; 8 words fall through). Translating a whole book takes seconds and needs
+  **no network at all** — switch to `Local only` and the plugin never makes a single request.
+- **Glosses via the free Microsoft Edge endpoint** for whatever the dictionary lacks —
+  coinages, names, places, brand-new slang. No API key required. Everything is cached in
+  SQLite and reused across books, so each word is fetched once and page turns stay instant.
+  `Gloss source` = `Local first` (default) / `Local only` / `Online only`.
+- **Part of speech, when it exists.** The local dictionary carries `adj.` / `n.` / `vt.`; the
+  online endpoint does not return it (verified: 0 of 22 sampled words). So `Show part of
+  speech` (off by default) prints the tag **when there is one and leaves it out when there is
+  not** — one page may mix both, which is intentional.
+- **One-click part-of-speech backfill.** Cached glosses from older versions lost their tag
+  during cleaning. `Clear gloss data → Backfill part of speech from the local dictionary`
+  restores them offline, without touching the meanings themselves.
 - **Manual and optional background translation.** Translate the current chapter or the whole
   book from the menu (runs in a child process, so you can keep reading and stop at any
   time). A separate "auto-translate while reading" toggle exists and is **off by default**.
@@ -48,19 +61,25 @@ Current version: **1.4.1** (matches `_meta.lua`).
   half a wave). The wavy line uses the gentle custombg style: one full wave spans 12–22 px
   with an amplitude of only ~2 px, and it does **not** scale with line thickness, so thickening
   it never turns the line into a sawtooth.
-- **No mega-dictionary.** The bundled language pack is only ~1.5 MB (frequency ranks +
-  lemmatization), not the several-hundred-MB local dictionaries some other solutions require.
+- **No mega-dictionary.** Two small packs ship inside the plugin: a 1.5 MB frequency pack
+  (ranks + lemmatization) and the ~4 MB meaning pack above — both trimmed from ECDICT down to
+  the words this plugin can actually annotate, not the several-hundred-MB dictionaries some
+  other solutions require.
 
 ## Installation
 
-1. Download `wordgloss.koplugin-v1.4.1.zip` (or copy this directory as-is).
+1. Download `wordgloss.koplugin-v1.5.0.zip` (or copy this directory as-is).
 2. Extract / copy it into KOReader's `plugins/` directory. The final layout **must** be:
 
    ```
    <koreader>/plugins/wordgloss.koplugin/main.lua
    <koreader>/plugins/wordgloss.koplugin/_meta.lua
    <koreader>/plugins/wordgloss.koplugin/data/wordgloss_en.sqlite3
+   <koreader>/plugins/wordgloss.koplugin/data/wordgloss_gloss_en.sqlite3
    ```
+
+   The second file is the offline meaning pack. Without it the plugin still works — it just
+   falls back to online translation for every word.
 
    By far the most common mistake is an **extra nested directory**
    (`plugins/wordgloss.koplugin/wordgloss.koplugin/main.lua`), in which case KOReader treats
@@ -117,9 +136,9 @@ Top level has just seven entries; every option lives inside one of them:
 | **Vocabulary size** | Beginner 1,500 / Intermediate 3,000 / Advanced 5,000, or a custom frequency threshold. |
 | **Gloss settings** | Everything about the gloss text. |
 | **Underline settings** | Everything about the line under the word. |
-| **Translate words (online)** | Translate current chapter / translate whole book (re-translate all) / show progress / stop, plus the "auto-translate while reading" toggle (off by default). |
-| **Clear gloss data** | Maintenance: `Clear this book's gloss data` / `Clear all cached glosses`. |
-| **Status** | Whether glosses are shown, the vocabulary level, and how many glosses are cached. |
+| **Translate words (online)** | **Gloss source** (`Local first` / `Local only` / `Online only`), then translate current chapter / translate whole book (re-translate all) / show progress / stop, plus the "auto-translate while reading" toggle (off by default). |
+| **Clear gloss data** | Maintenance: `Clear this book's gloss data` / `Clear all cached glosses` / **`Backfill part of speech from the local dictionary`** (offline). |
+| **Status** | Whether glosses are shown, the vocabulary level, how many glosses are cached, and the current gloss source. |
 
 *Gloss settings* → style, font size, per-page limit and font:
 
@@ -129,6 +148,7 @@ Top level has just seven entries; every option lives inside one of them:
 | Gloss font size | 8–24 px. |
 | Max glosses per page | When a page has too many hard words, the rarest ones win; `0` = unlimited. |
 | Max gloss length | Truncation limit in characters, so a gloss always fits between two lines. |
+| Show part of speech | Off by default. Prepends `adj.` / `n.` / `vt.` when the gloss has one. Only the **local dictionary** carries part of speech — the online endpoint does not return it — so a page will mix glosses with and without a tag: **shown when available, left empty when not**. |
 | Gloss offset | Distance from word to gloss, −20…40 px. Positive = away from the word (upwards in "above" mode, downwards in "below" mode); negative = hugging it. |
 | Gloss font | Default `Follow KOReader` uses KOReader's own CJK font; **Choose font…** opens KOReader's file browser so you can pick a `.ttf` / `.otf` / `.ttc` file yourself (long-press a file name to confirm). Pick a font with Chinese glyphs — otherwise every character renders as a tofu box. |
 | Skip people / places | On by default; words that only ever appear capitalized are ignored. |
@@ -231,7 +251,7 @@ disappearing). Stubs live in `tests/wordgloss/stubs/`.
 NODE=node                                   # or your node binary
 RUNNER=/path/to/luatest/runlua.js
 T=/absolute/path/to/tests/wordgloss         # both arguments must be absolute paths
-"$NODE" "$RUNNER" "$T" "$T/run_tests.lua"   # pure logic + paint layer + menu: 102 assertions
+"$NODE" "$RUNNER" "$T" "$T/run_tests.lua"   # pure logic + paint layer + menu + offline dict: 139 assertions
 "$NODE" "$RUNNER" "$T" "$T/run_load_test.lua"   # can all 13 modules be loaded
 "$NODE" "$RUNNER" "$T" "$T/dump_menu.lua"       # print the real menu tree and labels
 ```
@@ -257,6 +277,19 @@ node runlua.js <tests/wordgloss> <tests/wordgloss>/dump_menu.lua
 
 ## Changelog
 
+- **1.5.0** — **offline local dictionary, online becomes the fallback.** A trimmed ECDICT pack
+  (`data/wordgloss_gloss_en.sqlite3`, ~4 MB) now ships with the plugin: 41,145 headwords plus
+  35,863 inflections, 92% carrying a part-of-speech tag. Prefetch looks words up locally first
+  and only sends the leftovers to the Edge endpoint, so a whole book is glossed in seconds and
+  **`Local only` translates a book with zero network requests**. New `Gloss source` menu
+  (`Local first` / `Local only` / `Online only`).
+  **Part of speech is back** as an opt-in `Show part of speech` (off by default): the local
+  dictionary provides `adj.` / `n.` / `vt.`, the online endpoint does not (verified 0/22), so
+  the rule is *show it when there is one, leave it out when there is not*.
+  `Clear gloss data` gained **Backfill part of speech from the local dictionary**, which fills
+  in the missing tags of already-cached glosses offline. Local meanings are truncated with the
+  same `Max gloss length` / item limits as online ones, so both sources look identical.
+  Regenerate the pack any time with `tools/build_gloss_db.py`.
 - **1.4.1** — fixed **"Start glossing first" showing up even though the book was already
   translated**. Root cause: KOReader's `LuaSettings:saveSetting` only touches memory, and only
   `flush()` writes `settings.reader.lua`; since KOReader flushes on clean exit only, a suspended
@@ -310,8 +343,9 @@ node runlua.js <tests/wordgloss> <tests/wordgloss>/dump_menu.lua
 - **English only.** The frequency and lemma data is English, and tokenization splits on spaces.
 - Glosses are machine translations and **do not disambiguate senses** (polysemous words get
   their most common meaning). They are hints, not a dictionary.
-- An internet connection is needed to fetch a gloss the first time (only the word itself is
-  sent — never the surrounding text).
+- The offline pack covers 77k word forms. Anything outside it (coinages, names, places, very
+  new slang) still needs one online fetch the first time — and only if `Gloss source` is not
+  `Local only`. Only the word itself is sent, never the surrounding text.
 - Proper-noun filtering is a "only ever seen capitalized" heuristic; a rare word appearing just
   once at the start of a sentence may be missed.
 - Both gloss modes change line height. If you care strongly about the book's original
@@ -326,7 +360,10 @@ node runlua.js <tests/wordgloss> <tests/wordgloss>/dump_menu.lua
 - EPUB parsing and the `::after` overlay injection follow
   [dualtranslate.koplugin](https://github.com/enneaa/dualtranslate.koplugin) (GPL-3.0); this
   project's `wordgloss_tools.lua` and paragraph-scanning logic are ported from it.
-- Frequency and lemma data comes from [ECDICT](https://github.com/skywind3000/ECDICT) (MIT).
+- Frequency, lemma and offline meaning data all come from
+  [ECDICT](https://github.com/skywind3000/ECDICT) (MIT). `tools/build_en_db.py` and
+  `tools/build_gloss_db.py` trim it down to the words this plugin can actually annotate;
+  the 790 MB source database is **not** distributed.
 - The vocabulary-tier idea (1,500 / 3,000 / 5,000) follows epub-rosetta's Word Wise
   implementation, minus its two drawbacks: rewriting and re-zipping the EPUB, and depending on
   a 790 MB local dictionary.

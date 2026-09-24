@@ -602,6 +602,18 @@ function UI.gloss_settings_menu(plugin)
                     })
                 end,
             },
+            {
+                text = _("显示词性（adj./n./vt.）"),
+                checked_func = function() return plugin:showPos() end,
+                callback = function()
+                    plugin:saveSetting("show_pos", not plugin:showPos())
+                    plugin:refreshGlosses(true)
+                end,
+            },
+            {
+                text = _("说明：词性只有本地词典有，在线翻译没有；有就显示，没有就空着"),
+                enabled_func = function() return false end,
+            },
             UI.font_menu_item(plugin),
             {
                 text = _("不注释人名/地名（只大写出现过的词）"),
@@ -766,6 +778,20 @@ function UI.clear_menu(plugin)
                     }, function() plugin:clear_gloss_cache() end)
                 end,
             },
+            {
+                text = _("用本地词典补齐词性（不联网）"),
+                callback = function()
+                    local filled, total = plugin:backfill_pos()
+                    if not total then
+                        UI.showInfo(_("离线释义包不可用（data/wordgloss_gloss_en.sqlite3 缺失）"), 3)
+                    elseif total == 0 then
+                        UI.showInfo(_("缓存里的释义都已经有词性了"), 3)
+                    else
+                        UI.showInfo(T(_("已补齐 %1 / %2 条词性"), filled, total), 3)
+                        plugin:refreshGlosses(true)
+                    end
+                end,
+            },
         },
     }
 end
@@ -841,6 +867,39 @@ function UI.fallback_menu(plugin)
     }
 end
 
+--[[--
+释义来源：本地优先 / 仅本地 / 仅在线。
+
+离线释义包随插件分发（约 4 MB），本地优先时整本书几秒就能翻完且完全不联网，
+只有词典里没有的词（生造词、人名地名、新词）才走在线。
+]]
+function UI.gloss_source_menu(plugin)
+    local options = {
+        { id = "local_first", text = _("本地优先（本地没有的再联网）") },
+        { id = "local_only", text = _("仅本地（完全不联网）") },
+        { id = "online_only", text = _("仅在线（不用本地词典）") },
+    }
+    local items = {}
+    for _, option in ipairs(options) do
+        table.insert(items, {
+            text = option.text,
+            radio = true,
+            checked_func = function() return plugin:getGlossSource() == option.id end,
+            callback = function() plugin:saveSetting("gloss_source", option.id) end,
+        })
+    end
+    return {
+        text_func = function()
+            return _("释义来源：") .. ({
+                local_first = _("本地优先"),
+                local_only = _("仅本地"),
+                online_only = _("仅在线"),
+            })[plugin:getGlossSource()]
+        end,
+        sub_item_table = items,
+    }
+end
+
 function UI.build_prefetch_menu(plugin)
     local items = {}
     local prefetch = plugin.prefetch
@@ -848,6 +907,7 @@ function UI.build_prefetch_menu(plugin)
         return prefetch ~= nil and prefetch:is_running()
     end
 
+    table.insert(items, UI.gloss_source_menu(plugin))
     table.insert(items, {
         text = _("翻译当前章的生词"),
         callback = function() plugin:start_prefetch_chapter() end,

@@ -237,6 +237,35 @@ function Cache:putGloss(word, lang, gloss, pos)
         word, lang or "zh", gloss or "", os.time())
 end
 
+--[[--
+还没有词性的释义，用于「用本地词典补齐词性」。
+
+返回 { {word=..., gloss=...}, ... }，最多 limit 条。
+老库没有 pos 列（或补列失败）时返回空表——那种情况下补齐没有意义。
+]]
+function Cache:glosses_without_pos(lang, limit)
+    local out = {}
+    local db = self:open()
+    if not db or not self._pos_ready then return out end
+    lang = lang or "zh"
+    limit = tonumber(limit) or 20000
+    local ok, stmt = pcall(function()
+        return db:prepare("select word, gloss from gloss "
+            .. "where lang = ? and (pos is null or pos = '') and gloss <> '' limit ?")
+    end)
+    if not ok or not stmt then return out end
+    pcall(function()
+        stmt:bind(lang, limit)
+        while true do
+            local row = stmt:step()
+            if not row then break end
+            out[#out + 1] = { word = tostring(row[1]), gloss = row[2] }
+        end
+    end)
+    pcall(function() stmt:close() end)
+    return out
+end
+
 function Cache:countGlosses(lang)
     local row = self:_query("select count(*) from gloss where lang = ?", lang or "zh")
     return row and tonumber(row[1]) or 0

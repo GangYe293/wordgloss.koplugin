@@ -137,12 +137,12 @@ function Page.build_glosses(document, page, config)
     for _, candidate in ipairs(candidates) do
         local info = candidate.info
         local key = (info.base and info.base ~= "") and info.base:lower() or info.word
-        local gloss
+        local gloss, gloss_pos
         if config.cache then
-            gloss = config.cache:getGloss(key, config.lang)
+            gloss, gloss_pos = config.cache:getGloss(key, config.lang)
             if gloss == nil then
                 -- 缓存里没有：先试试原词（原形可能不在词频包里）
-                gloss = config.cache:getGloss(info.word, config.lang)
+                gloss, gloss_pos = config.cache:getGloss(info.word, config.lang)
                 if gloss == nil then missing = true else key = info.word end
             end
         else
@@ -151,8 +151,14 @@ function Page.build_glosses(document, page, config)
 
         if gloss and gloss ~= "" and gloss ~= false then
             stats.cached = stats.cached + 1
+            -- 词性：有就带着，没有就空着。离线释义包给的词性存在缓存的 pos 列里，
+            -- 在线翻译通常没有，于是这一页会混排——这是有意的，不为了整齐去编。
+            local text = gloss
+            if config.show_pos and gloss_pos and gloss_pos ~= "" then
+                text = gloss_pos .. " " .. gloss
+            end
             glosses[#glosses + 1] = {
-                text = gloss, word = candidate.surface, rank = info.rank,
+                text = text, word = candidate.surface, rank = info.rank,
                 box = candidate.box, boxes = candidate.boxes,
             }
         elseif missing then
