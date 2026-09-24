@@ -63,7 +63,8 @@ Current version: **1.6.0** (matches `_meta.lua`).
   it never turns the line into a sawtooth.
 - **Self-updating.** `About → Check for updates` asks GitHub Releases once (falling back to
   `gh-proxy` mirrors if GitHub is unreachable) and offers **code-only** (a few dozen KB) or
-  the **full package** (with the offline dictionary). Downloads are **SHA-256 verified**, the
+  the **full package** (with the offline dictionary). Downloads are **size-checked**, and
+  **SHA-256 verified** when the digest is available, the
   previous version is **backed up** first, and you are asked whether to restart afterwards.
   Nothing is fetched unless you tap the item; a "check once a day" toggle exists (reminder
   only — it never installs on its own).
@@ -158,8 +159,9 @@ Top level has just eight entries; every option lives inside one of them:
    - **Code only** (a few dozen KB) — use this when the offline dictionary is already there;
    - **Full package** (with the dictionary, ~3 MB) — when the dictionary is missing or you
      want a fresh copy.
-3. Verifies the download against the published **SHA-256**; a mismatch is treated as "never
-   downloaded".
+3. Checks the byte size against the one the Release API reported (catches truncated downloads
+   and proxy error pages), then compares the **SHA-256** digest *if* the `.sha256` file can be
+   fetched — a mirror that never synced it is not allowed to block the update.
 4. Renames the old directory to `wordgloss.koplugin.backup` and renames the new one into place
    — **if that rename fails it is immediately reverted**. The backup is kept until the new
    version has *successfully started once*, so if it cannot even load, renaming
@@ -284,7 +286,7 @@ Four files land in the parent directory of the repository:
 | --- | --- |
 | `wordgloss-<version>.zip` | Full package: code + the `data/` dictionary (~3 MB) |
 | `wordgloss-<version>-code.zip` | Code only, no `data/` (~100 KB) |
-| both `.zip.sha256` | Their SHA-256, which the plugin verifies before installing |
+| both `.zip.sha256` | Their SHA-256, verified before installing when available |
 
 Both zips have `wordgloss.koplugin/` as their top-level directory, so extracting into
 `plugins/` gives the correct layout (that is also what the self-updater expects).
@@ -313,7 +315,7 @@ disappearing). Stubs live in `tests/wordgloss/stubs/`.
 NODE=node                                   # or your node binary
 RUNNER=/path/to/luatest/runlua.js
 T=/absolute/path/to/tests/wordgloss         # both arguments must be absolute paths
-"$NODE" "$RUNNER" "$T" "$T/run_tests.lua"   # pure logic + paint layer + menu + offline dict + updater: 213 assertions
+"$NODE" "$RUNNER" "$T" "$T/run_tests.lua"   # pure logic + paint layer + menu + offline dict + updater: 217 assertions
 "$NODE" "$RUNNER" "$T" "$T/run_load_test.lua"   # can all 16 modules be loaded
 "$NODE" "$RUNNER" "$T" "$T/dump_menu.lua"       # print the real menu tree and labels
 ```
@@ -342,15 +344,17 @@ node runlua.js <tests/wordgloss> <tests/wordgloss>/dump_menu.lua
 - **1.6.0** — **the plugin can update itself.** New `About` menu: shows the version and the
   author, and `Check for updates` asks GitHub Releases once (falling back to `gh-proxy` mirrors
   when GitHub is unreachable), offering **code only** or the **full package** (with the offline
-  dictionary). The flow is **download → verify SHA-256 → extract outside the plugin directory →
-  rename the old version to a backup → rename the new one into place**; a failed rename is
+  dictionary). The flow is **download → size check → SHA-256 when available → extract outside
+  the plugin directory → rename the old version to a backup → rename the new one into place**;
+  a failed rename is
   reverted immediately, and the backup survives until the new version has started successfully
   once (so renaming `wordgloss.koplugin.backup` back restores everything). You are then asked
   whether to restart KOReader. "Check once a day" is off by default and only ever reminds you —
   it never installs by itself. The updater (`wordgloss_update.lua`) and its bundled SHA-256
   implementation (`wordgloss_sha2.lua`) need no third-party code, only KOReader's own
   `socket.http` / `json` / `ffi-archiver`. Releases are cut with `tools/release.py`
-  (package + tag + release in one command).
+  (package + tag + release in one command). The top-level menu entry is now **`WordGloss`**
+  (was "生词注释"); the plugin's full name is `WordGloss（生词注释）`.
 - **1.5.0** — **offline local dictionary, online becomes the fallback.** A trimmed ECDICT pack
   (`data/wordgloss_gloss_en.sqlite3`, ~4 MB) now ships with the plugin: 41,145 headwords plus
   35,863 inflections, 92% carrying a part-of-speech tag. Prefetch looks words up locally first

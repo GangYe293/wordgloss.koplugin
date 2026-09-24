@@ -255,6 +255,7 @@ function Updater:new(options)
         extract = options.extract,
         read_file = options.read_file,
         verify = options.verify,
+        size_of = options.size_of,
         make_path = options.make_path,
         prefer_proxy = options.prefer_proxy == true,
         now = options.now,
@@ -274,6 +275,17 @@ end
 function Updater:_make_path(path)
     if self.make_path then return self.make_path(path) end
     return make_path(path)
+end
+
+-- 量一下下载到的文件有多大；量不出来就返回 nil，交给后面的步骤兜底。
+function Updater:_size_of(path)
+    if self.size_of then return self.size_of(path) end
+    if type(io) ~= "table" or not io.open then return nil end
+    local file = io.open(path, "rb")
+    if not file then return nil end
+    local size = file:seek("end")
+    file:close()
+    return size
 end
 
 -- 比对下载到的包与发布方给的 SHA-256。
@@ -563,22 +575,34 @@ function Updater:install(release, opts)
         return nil, err or _("下载更新包失败")
     end
 
-    -- 2) 下校验值并比对（对不上就当这次下载没发生过）
-    report(on_progress, "checksum", 74)
-    local ok_sha, err_sha = self:_get(asset.sha_url, checksum, nil, 4096)
-    if not ok_sha then
-        remove_tree(self.work_dir)
-        return nil, err_sha or _("下载校验值失败")
-    end
-    report(on_progress, "verifying", 78)
-    local verified = self:_verify(archive, checksum)
-    if not verified then
-        logger.warn("wordgloss: update checksum mismatch:", tostring(archive))
-        remove_tree(self.work_dir)
-        return nil, _("更新包校验失败，已放弃安装")
+    -- 2) 体积校验：Release API 给的字节数跟安装包同源、最可信，
+    --    先拿它挡住"下载被截断 / 代理返回错误页"这两类最常见的问题。
+    report(on_progress, "checking", 73)
+    local expected_size = tonumber(asset.size)
+    if expected_size and expected_size > 0 then
+        local got_size = self:_size_of(archive)
+        if got_size and got_size ~= expected_size then
+            remove_tree(self.work_dir)
+            return nil, _("下载的安装包不完整，已放弃安装")
+        end
     end
 
-    -- 3) 解压到临时目录（目录在插件之外，替换时不会把自己删掉）
+    -- 3) SHA-256：拿得到摘要就比对，拿不到就跳过。
+    --    镜像没同步 .sha256 不该把用户卡住，体积已经核过了。
+    report(on_progress, "checksum", 74)
+    local ok_sha = self:_get(asset.sha_url, checksum, nil, 4096)
+    if ok_sha then
+        report(on_progress, "verifying", 78)
+        if not self:_verify(archive, checksum) then
+            logger.warn("wordgloss: update checksum mismatch:", tostring(archive))
+            remove_tree(self.work_dir)
+            return nil, _("更新包校验失败，已放弃安装")
+        end
+    else
+        logger.info("wordgloss: 没有可用的 .sha256，跳过哈希校验（体积已核对）")
+    end
+
+    -- 4) 解压到临时目录（目录在插件之外，替换时不会把自己删掉）
     report(on_progress, "extracting", 84)
     local extract = self.extract or Updater.default_extract
     local ok_unpack, err_unpack = extract(archive, stage)
@@ -595,7 +619,7 @@ function Updater:install(release, opts)
         return nil, _("更新包内容不对，已放弃安装")
     end
 
-    -- 4) 备份 + 换名激活；激活失败立刻换回来
+    -- 5) 备份 + 换名激活；激活失败立刻换回来
     report(on_progress, "installing", 92)
     local backup = self.plugin_dir .. ".backup"
     remove_tree(backup)

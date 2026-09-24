@@ -101,7 +101,7 @@ function wordgloss:addToMainMenu(menu_items)
         items = UI.fallback_menu(self)
     end
     menu_items.wordgloss = {
-        text = _("生词注释"),
+        text = _("WordGloss"),
         sorting_hint = "tools",
         sub_item_table = items,
     }
