@@ -80,7 +80,7 @@ function wordgloss:addToMainMenu(menu_items)
         items = UI.fallback_menu(self)
     end
     menu_items.wordgloss = {
-        text = _("生词注释（WordGloss）"),
+        text = _("生词注释"),
         sorting_hint = "tools",
         sub_item_table = items,
     }
@@ -167,9 +167,19 @@ function wordgloss:getSetting(key, default)
     return value
 end
 
+--[[--
+KOReader 的 LuaSettings:saveSetting 只改内存，只有 flush()/close() 才真正写
+settings.reader.lua；而 KOReader 只在正常退出时才统一 flush。Kindle 上一旦是
+挂起/掉电/崩溃退出，这一次写的设置就整批没了——这正是「昨天明明开始过转换，
+今天却提示还没开始」的原因（释义缓存是 SQLite，写完就在盘上，所以数据是活的）。
+
+本插件的所有设置都由用户点菜单产生，不存在高频写入，立刻落盘是安全的。
+]]
 function wordgloss:saveSetting(key, value)
-    if G_reader_settings then
-        G_reader_settings:saveSetting(SETTING_PREFIX .. key, value)
+    if not G_reader_settings then return end
+    G_reader_settings:saveSetting(SETTING_PREFIX .. key, value)
+    if G_reader_settings.flush then
+        pcall(function() G_reader_settings:flush() end)
     end
 end
 
@@ -177,6 +187,74 @@ end
 -- 必须由用户在菜单里点「开始转换」才会生效（之后记住这个选择）。
 function wordgloss:isEnabled()
     return self:getSetting("enabled", false) == true
+end
+
+--[[--
+菜单里的「显示注释生词」：勾上才把注释画到书页上，取消则只隐藏（数据仍在）。
+
+「开始转换」与「显示」是两件事：前者做转换，后者管看不看得到。取消显示时
+注释和为它预留的行距都要撤掉，所以所有绘制/注入的入口统一走 isVisible()。
+]]
+function wordgloss:showGlosses()
+    return self:getSetting("show_glosses", true) == true
+end
+
+function wordgloss:isVisible()
+    return self:isEnabled() and self:showGlosses()
+end
+
+--[[--
+有没有可以拿来显示的东西：看释义缓存里有没有记录。
+
+释义缓存是跨书共享的（同一语言的词一次翻译永久复用），所以昨天在别的书里
+翻译过、今天换本书也能用。它跟「开始转换」那个开关是两件事——开关丢了对用户
+没有意义，缓存才是"我昨天已经转过"的证据。判断显示与否应该看这个，而不是看
+enabled 标志位。
+]]
+function wordgloss:hasGlossData()
+    if not self:is_usable() then return false end
+    local ok, count = pcall(function()
+        return self.cache and self.cache:countGlosses(self:getGlossLangKey()) or 0
+    end)
+    return ok and tonumber(count) ~= nil and tonumber(count) > 0
+end
+
+--[[--
+「显示注释生词」的勾选/取消。
+
+一次都没翻译过时确实无东西可显示，提示用户去点「开始转换」；但只要缓存里
+已经有释义（昨天转过即可，哪怕是别的书留下的），就直接显示，并顺手把丢失的
+"已开始"状态补上——不必为了看注释再点一次开始转换。
+]]
+function wordgloss:toggle_gloss_visibility(menu)
+    if not self:is_usable() then
+        UI.showInfo(_("插件未正常初始化，请重启 KOReader"), 3)
+        return false
+    end
+    if not self:hasGlossData() then
+        UI.showInfo(_("还没有注释生词，请先点上面的「开始转换」"), 3)
+        if menu and menu.updateItems then menu:updateItems() end
+        return false
+    end
+    -- 以"界面上看着是勾还是没勾"为准决定翻到哪边，不能用 show_glosses 本身：
+    -- 开关状态丢失时 UI 上显示为没勾（isVisible 为假），而 show_glosses 仍是
+    -- true，照它取反会把用户刚点的"显示"变成隐藏。
+    local want_visible = not self:isVisible()
+    -- 状态可能没跟着落盘（见 saveSetting 的说明）：有数据就当已开始，别让用户重来。
+    if not self:isEnabled() then self:saveSetting("enabled", true) end
+    self:saveSetting("show_glosses", want_visible)
+    self:applyEnabledState(menu)
+    UI.showInfo(self:showGlosses()
+        and _("已显示注释生词")
+        or _("已隐藏注释生词（注释数据仍在，重新勾选即可恢复）"), 2)
+    return true
+end
+
+-- 菜单上显示当前字体：手选的是完整路径，只显示文件名。
+function wordgloss:fontLabel()
+    local face = self:getSetting("font_face")
+    if not face or face == "" then return nil end
+    return face:match("([^/\\]+)$") or face
 end
 
 -- 初始化失败时（self.cache/lexicon/book 缺失）所有功能静默降级，
@@ -294,7 +372,8 @@ end
 -- 把当前"开/关"状态真正落到界面：样式表 + 绘制层 + 菜单勾选。
 function wordgloss:applyEnabledState(menu)
     if self.overlay then
-        if self:isEnabled() then
+        -- 转换没开始、或用户把「显示注释生词」取消了：都只是不画，数据不动。
+        if self:isVisible() then
             self.overlay.font_size = self:getGlossFontSize()
             self.overlay.font_face = self:getSetting("font_face")
             self.overlay.underline = self:getSetting("underline", true) == true
@@ -324,6 +403,8 @@ function wordgloss:start_translation(menu)
         return
     end
     self:saveSetting("enabled", true)
+    -- 用户主动点上来的意思就是要看注释，顺手把上一次的"隐藏"恢复。
+    self:saveSetting("show_glosses", true)
     self:applyEnabledState(menu)
     UI.ask_translate_scope(self)
 end
@@ -372,7 +453,7 @@ end
 -- 注入的样式只受这些设置影响：它们一变就重新应用样式表。
 function wordgloss:style_signature()
     return table.concat({
-        tostring(self:isEnabled()), self:getMode(),
+        tostring(self:isVisible()), self:getMode(),
         tostring(self:getGlossFontSize()),
         tostring(self:getSetting("font_face")),
         tostring(self:getSetting("underline", true)),
@@ -432,7 +513,8 @@ function wordgloss:hookStyleSheet()
     local plugin = self
     document.setStyleSheet = function(doc, css, tweaks_css)
         local extra = tweaks_css or ""
-        if plugin:isEnabled() then
+        -- 隐藏注释时连行距也撤掉：留着只会让页面白白变稀疏。
+        if plugin:isVisible() then
             -- 注意：这里运行在 CREngine 应用样式表的执行中间，绝对不能做任何
             -- 重入引擎的调用（如分页探测 getPageFromXPointer）——那会段错误、
             -- 直接杀死 KOReader 进程。只允许纯 Lua/SQLite 的 CSS 生成，
@@ -591,7 +673,7 @@ function wordgloss:refreshGlosses(force)
         self.overlay:clear()
         return
     end
-    if not self:isEnabled() then
+    if not self:isVisible() then
         self.overlay:clear()
         UIManager:setDirty(self.ui.view, "ui")
         return
@@ -779,7 +861,17 @@ function wordgloss:status_text()
         return _("内部组件不可用，请重启 KOReader")
     end
     local count = self.cache:countGlosses(self:getGlossLangKey())
-    local state = self:isEnabled() and _("已开始") or _("未开始（点上面的「开始转换」）")
+    local state
+    if self:isVisible() then
+        state = _("已显示")
+    elseif self:isEnabled() then
+        state = _("已转换，注释未显示（勾上面的「显示注释生词」）")
+    elseif count > 0 then
+        -- 开关状态可能没落盘，或这本是转过的另一本书：缓存还在就能直接显示。
+        state = _("有释义但未显示（勾上面的「显示注释生词」）")
+    else
+        state = _("未开始（点上面的「开始转换」）")
+    end
     if not self.lexicon:available() then
         return T(_("%1；词频包不可用；释义缓存 %2 条"), state, count)
     end

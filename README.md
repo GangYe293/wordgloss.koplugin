@@ -7,11 +7,11 @@ WordGloss annotates difficult words with a short Chinese meaning printed directl
 book by a single byte**. No `<ruby>` tags are injected, no XHTML is rewritten; the glosses
 exist only inside the plugin's own cache and paint layer.
 
-Current version: **1.3.0** (matches `_meta.lua`).
+Current version: **1.4.1** (matches `_meta.lua`).
 
 **[English](README.md) | [简体中文](README.zh-CN.md)**
 
-![version](https://img.shields.io/badge/version-1.3.0-blue)
+![version](https://img.shields.io/badge/version-1.4.1-blue)
 ![platform](https://img.shields.io/badge/platform-KOReader-green)
 ![license](https://img.shields.io/badge/license-GPL--3.0-orange)
 
@@ -24,6 +24,9 @@ Current version: **1.3.0** (matches `_meta.lua`).
 - **Opt-in, never automatic.** After installing, *nothing happens* when you open a book.
   You must tap **Start glossing** in the menu and choose a vocabulary size and translation
   scope — the network is only ever used at that moment.
+- **Show / hide without losing anything.** `Show glossed words` is a separate control from
+  `Start glossing`: hiding removes the glosses *and* the extra line spacing, but keeps every
+  cached gloss — tick it again and everything is back instantly.
 - **Vocabulary levels.** Beginner / Intermediate / Advanced decide *which* words are worth
   glossing, based on corpus frequency rank (Beginner = skip the most common 1,500 words,
   Intermediate 3,000, Advanced 5,000). A custom threshold is also available.
@@ -50,7 +53,7 @@ Current version: **1.3.0** (matches `_meta.lua`).
 
 ## Installation
 
-1. Download `wordgloss.koplugin-v1.3.0.zip` (or copy this directory as-is).
+1. Download `wordgloss.koplugin-v1.4.1.zip` (or copy this directory as-is).
 2. Extract / copy it into KOReader's `plugins/` directory. The final layout **must** be:
 
    ```
@@ -90,33 +93,54 @@ dialog, only a single log line, and the plugin **silently disappears**. Check in
 
 ## Usage
 
-Menu: **top bar → Tools tab → WordGloss**. The plugin is **off** by default; switch it on
-manually once, in this order:
+Menu: **top bar → Tools tab → WordGloss**. The plugin is **off** by default; it never does
+anything on book open — you switch it on manually, once:
 
-1. **Vocabulary size (Beginner / Intermediate / Advanced)** — pick the ruler first:
-   Beginner (skip the 1,500 most common words) / Intermediate (3,000) / Advanced (5,000),
-   or a custom threshold.
-2. **Start glossing** — this is what enables annotation. You'll then be asked for a
-   translation scope: `Translate this chapter` / `Translate whole book (background)` /
-   `Use cached glosses only` / `Cancel`.
-3. Page turns now carry glosses. To turn it off, tap **Stop glossing (hide)** in the same place.
+1. **Vocabulary size** — pick the ruler first: Beginner (skip the 1,500 most common words) /
+   Intermediate (3,000) / Advanced (5,000), or a custom threshold.
+2. **Start glossing** — open it and tap the **Start glossing** switch inside. That is what runs
+   the conversion; afterwards you're asked for a translation scope: `Translate this chapter` /
+   `Translate whole book (background)` / `Use cached glosses only` / `Cancel`.
+3. **Show glossed words** (same submenu) decides whether the result is visible. Unticking it
+   only *hides* the glosses — the extra line spacing is withdrawn too, but no data is deleted,
+   so ticking it again restores everything.
+   The gloss cache is **shared across books**, so it does not gate on the "Start glossing"
+   switch: if any gloss was already translated (yesterday, or in another book), ticking
+   **Show glossed words** displays it right away — no need to start the conversion again.
+   Only when the cache is completely empty does it ask you to start one first.
+
+Top level has just seven entries; every option lives inside one of them:
 
 | Menu item | Description |
 | --- | --- |
-| Start glossing / Stop glossing | Manual master switch. **Off by default** — the plugin never runs itself on book open. |
-| Vocabulary size | Beginner 1,500 / Intermediate 3,000 / Advanced 5,000, or a custom threshold. |
+| **Start glossing** | Parent group. Contains: the **Start glossing / Stop glossing** switch (checked = conversion is active) and **Show glossed words** (show / hide the result). |
+| **Vocabulary size** | Beginner 1,500 / Intermediate 3,000 / Advanced 5,000, or a custom frequency threshold. |
+| **Gloss settings** | Everything about the gloss text. |
+| **Underline settings** | Everything about the line under the word. |
+| **Translate words (online)** | Translate current chapter / translate whole book (re-translate all) / show progress / stop, plus the "auto-translate while reading" toggle (off by default). |
+| **Clear gloss data** | Maintenance: `Clear this book's gloss data` / `Clear all cached glosses`. |
+| **Status** | Whether glosses are shown, the vocabulary level, and how many glosses are cached. |
+
+*Gloss settings* → style, font size, per-page limit and font:
+
+| Item | Description |
+| --- | --- |
 | Gloss style | `Small text above the word` (default) or `Small text below the word` (word → underline → gloss). |
-| Gloss font size / Max gloss length / Max glosses per page | Visual density controls (when a page has too many hard words, the rarest ones win). |
-| Underline glossed words | A gloss is often wider than its word; the underline shows which word it belongs to. |
-| Underline style | Solid / dashed / wavy, plus thickness 1–6 px. |
+| Gloss font size | 8–24 px. |
+| Max glosses per page | When a page has too many hard words, the rarest ones win; `0` = unlimited. |
+| Max gloss length | Truncation limit in characters, so a gloss always fits between two lines. |
+| Gloss offset | Distance from word to gloss, −20…40 px. Positive = away from the word (upwards in "above" mode, downwards in "below" mode); negative = hugging it. |
+| Gloss font | Default `Follow KOReader` uses KOReader's own CJK font; **Choose font…** opens KOReader's file browser so you can pick a `.ttf` / `.otf` / `.ttc` file yourself (long-press a file name to confirm). Pick a font with Chinese glyphs — otherwise every character renders as a tofu box. |
+| Skip people / places | On by default; words that only ever appear capitalized are ignored. |
+
+*Underline settings* → whether to draw it, what it looks like, and where it sits:
+
+| Item | Description |
+| --- | --- |
+| Show underline | Toggles the line itself. A gloss is often wider than its word, so the line tells you which word it belongs to. |
+| Underline style | Solid / dashed / wavy, plus **thickness** 1–6 px and **line density** (see below). |
 | Line density | Dashed and wavy only: small (sparse) / medium / large (dense) / **Custom** (2–24 px, smaller = denser). |
-| Gloss offset | Distance from word to gloss, −20…40 px. Positive = push away (upwards in "above" mode, downwards in "below" mode); negative = pull closer. |
-| Underline offset | Distance from word to underline, −20…40 px. Positive = push down/away; negative = hug the word. |
-| Skip people / places | On by default. |
-| Gloss font | Follows KOReader's CJK font; set a font name manually if you see tofu boxes. |
-| Translate words (online) | Translate current chapter / translate whole book / show progress / stop, plus the "auto-translate while reading" toggle (off by default). |
-| Clear this book's data / Clear all cached glosses | Maintenance. |
-| Status | Shows whether glossing is active, the vocabulary level, and how many glosses are cached. |
+| Underline offset | Distance from word to underline, −20…40 px. Positive = further below the word; negative = up against it. |
 
 `Translate this chapter / Translate whole book` pops up a collapsible progress bar (tap outside
 the window to collapse it and keep reading). The window contains only a title and the bar, and
@@ -207,7 +231,7 @@ disappearing). Stubs live in `tests/wordgloss/stubs/`.
 NODE=node                                   # or your node binary
 RUNNER=/path/to/luatest/runlua.js
 T=/absolute/path/to/tests/wordgloss         # both arguments must be absolute paths
-"$NODE" "$RUNNER" "$T" "$T/run_tests.lua"   # pure logic + paint layer: 51 assertions
+"$NODE" "$RUNNER" "$T" "$T/run_tests.lua"   # pure logic + paint layer + menu: 102 assertions
 "$NODE" "$RUNNER" "$T" "$T/run_load_test.lua"   # can all 13 modules be loaded
 "$NODE" "$RUNNER" "$T" "$T/dump_menu.lua"       # print the real menu tree and labels
 ```
@@ -233,6 +257,27 @@ node runlua.js <tests/wordgloss> <tests/wordgloss>/dump_menu.lua
 
 ## Changelog
 
+- **1.4.1** — fixed **"Start glossing first" showing up even though the book was already
+  translated**. Root cause: KOReader's `LuaSettings:saveSetting` only touches memory, and only
+  `flush()` writes `settings.reader.lua`; since KOReader flushes on clean exit only, a suspended
+  / power-cut Kindle session silently lost the `enabled` state — while the SQLite gloss cache
+  survived, which is why "the data is there but the switch is gone". Settings are now flushed
+  immediately after every change. Second, **Show glossed words** no longer gates on the start
+  switch but on whether the (cross-book, shared) gloss cache actually has entries, so anything
+  you glossed before can be shown again directly; the start switch is repaired in the process.
+- **1.4.0** — **menu restructured** into seven top-level entries: `Start glossing`
+  (containing the start/stop switch and the new **Show glossed words** checkbox),
+  `Vocabulary size`, `Gloss settings`, `Underline settings`, `Translate words (online)`,
+  `Clear gloss data` and `Status`.
+  `Show glossed words` is now independent from `Start glossing`: hiding the glosses removes them
+  *and* the extra line spacing, but keeps all data, so re-ticking restores everything (ticking it
+  before any conversion simply reminds you to start one first).
+  `Underline glossed words` renamed **`Show underline`** and moved together with `Underline
+  style` and `Underline offset` into `Underline settings`. Gloss-side options moved into
+  `Gloss settings`. The two offset items lost their `positive = away` suffix. The gloss font entry
+  is now **`Choose font…`**, which opens KOReader's file browser for a `.ttf` / `.otf` / `.ttc`
+  file instead of asking you to type a font name (falls back to typing if the file browser isn't
+  available in that KOReader build).
 - **1.3.0** — **redrawn wavy underline** (the old one had a 4–8 px wavelength with amplitude
   scaling with thickness, i.e. a sawtooth). Now uses custombg.koplugin's gentle style: one full
   wave spans 12–22 px with a fixed 1–2 px amplitude (driven by wavelength only, so thickening
