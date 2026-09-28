@@ -7,11 +7,11 @@ WordGloss annotates difficult words with a short Chinese meaning printed directl
 book by a single byte**. No `<ruby>` tags are injected, no XHTML is rewritten; the glosses
 exist only inside the plugin's own cache and paint layer.
 
-Current version: **1.8.0** (matches `_meta.lua`).
+Current version: **1.8.1** (matches `_meta.lua`).
 
 **[English](README.md) | [简体中文](README.zh-CN.md)**
 
-![version](https://img.shields.io/badge/version-1.8.0-blue)
+![version](https://img.shields.io/badge/version-1.8.1-blue)
 ![platform](https://img.shields.io/badge/platform-KOReader-green)
 ![license](https://img.shields.io/badge/license-GPL--3.0-orange)
 
@@ -75,8 +75,8 @@ Current version: **1.8.0** (matches `_meta.lua`).
 
 ## Installation
 
-1. Download `wordgloss-1.8.0.zip` (full package, includes the offline dictionary) or
-   `wordgloss-1.8.0-code.zip` (code only — enough if the dictionary is already installed);
+1. Download `wordgloss-1.8.1.zip` (full package, includes the offline dictionary) or
+   `wordgloss-1.8.1-code.zip` (code only — enough if the dictionary is already installed);
    both are attached to the release.
 2. Extract / copy it into KOReader's `plugins/` directory. The final layout **must** be:
 
@@ -340,6 +340,18 @@ node runlua.js <tests/wordgloss> <tests/wordgloss>/dump_menu.lua
 
 ## Changelog
 
+- **1.8.1** — **More robust online translation.** ① Weak-network retries: connection
+  failures, DNS errors, timeouts and 5xx responses are retried twice with 2 s / 3 s
+  backoff. Errors that will never succeed on a retry (401 bad key, 429 rate limited,
+  456 quota exhausted) are returned immediately. Each request is capped at 90 s in total,
+  so prefetching a whole book cannot stall. ② Human-readable errors: 401 → "the API key is
+  invalid or expired", 403 → "no access", 429 → "rate limited, try again later",
+  456 → "quota exhausted", 5xx → "service temporarily unavailable". ③ Fixes a
+  long-standing mistake: with luasocket, `http.request{…}` returns "did it connect" as its
+  *first* value, not the status code. It was never skipped, so the real status code and
+  error message were always read from the wrong slot — that is where the
+  `HTTP error: nil nil` log lines came from. Network failures and HTTP errors are now
+  handled separately, and the log shows the real status code.
 - **1.8.0** — **the online engine is now selectable.** The translate menu gained a
   `Network settings` entry: Microsoft Edge stays the default (free, no key), and you can
   switch to Zhipu GLM-4 Flash or SiliconFlow (free tier), or to DeepL, DeepSeek and any

@@ -59,7 +59,10 @@ function Providers.http_post(url, body)
     logger.dbg("wordgloss: HTTP POST", url, "body=", body:sub(1, 120))
 
     socketutil:set_timeout(Providers.TIMEOUT, Providers.TIMEOUT)
-    local code, resp_headers, status = http.request{
+    -- luasocket 的 http.request 用表参数时：成功返回 1, code, headers, status；
+    -- 失败返回 nil, errmsg。不写 skip(1) 会把第一个返回值（那个 1/nil）当成状态码，
+    -- 真正的 HTTP 码和错误消息就全错位了。
+    local ok, code, resp_headers, status = http.request{
         url = url,
         method = "POST",
         headers = headers,
@@ -69,17 +72,28 @@ function Providers.http_post(url, body)
     socketutil:reset_timeout()
 
     local raw = table.concat(response)
-    logger.dbg("wordgloss: HTTP response", "code=", tostring(code),
+    logger.dbg("wordgloss: HTTP response", "ok=", tostring(ok), "code=", tostring(code),
         "status=", tostring(status), "raw_len=", tostring(#raw),
         "raw=", raw:sub(1, 160))
 
-    local ok, data = pcall(json.decode, raw)
-    if not ok or not data then
+    -- 网络层失败（连不上 / DNS / 超时）：ok 为 nil，第二个返回值是错误消息。
+    if not ok then
+        logger.warn("wordgloss: provider network error:", tostring(code))
+        return nil, {
+            code = nil,
+            message = _("翻译服务连接失败，请检查网络"),
+            detail = tostring(code),
+            raw = raw:sub(1, 200),
+        }
+    end
+
+    local ok_decode, data = pcall(json.decode, raw)
+    if not ok_decode or not data then
         logger.warn("wordgloss: provider HTTP error:", tostring(code), tostring(status), raw:sub(1, 160))
         return nil, {
             code = code,
-            message = (not code or code == 1)
-                and _("翻译服务连接失败，请检查网络")
+            message = (code == 200)
+                and _("翻译服务返回的内容无法解析")
                 or string.format(_("翻译服务返回 HTTP %s"), tostring(code)),
             detail = tostring(status),
             raw = raw:sub(1, 200),

@@ -35,7 +35,7 @@ local wordgloss = WidgetContainer:extend{
 }
 
 -- 与 _meta.lua 里的 version 保持一致：菜单「关于」显示它，更新器拿它比大小。
-wordgloss.VERSION = "1.8.0"
+wordgloss.VERSION = "1.8.1"
 
 local SETTING_PREFIX = "wordgloss_"
 local AUTO_PREFETCH_COOLDOWN = 30   -- 自动预取的两次尝试之间至少间隔多少秒

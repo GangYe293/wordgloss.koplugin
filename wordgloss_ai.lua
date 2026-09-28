@@ -72,6 +72,14 @@ AI.MAX_ITEMS = 20
 AI.DEEPL_MAX_ITEMS = 25
 -- 大模型首字节慢（尤其 reasoner），15 秒不够用。
 AI.TIMEOUT = 45
+-- 弱网重试：失败后再试 2 次（共 3 次），退避 2 秒、再 3 秒。
+-- 只对网络层失败和 5xx 重试；401/429/456 重试多少次都一样，还会白烧配额。
+AI.RETRY_TIMES = 2
+AI.RETRY_DELAY = 2
+AI.RETRY_FACTOR = 1.5
+-- 一次 POST（含重试）的总耗时上限。睡完退避后如果连一次完整请求的超时都留不出来了，
+-- 就别再试——整本书几百个词，每个都拖满会把预取拖到几十分钟。
+AI.RETRY_BUDGET = 90
 
 function AI.by_id(id)
     for _, engine in ipairs(AI.ENGINES) do
@@ -168,8 +176,87 @@ end
 -- HTTP
 -- ---------------------------------------------------------------------------
 
--- POST JSON。可注入（测试用）。
--- 成功返回解码后的 data；失败返回 nil, { code=..., message=..., raw=... }。
+--[[--
+把 HTTP 状态码翻译成人话。
+
+参考 ai_translator.koplugin 的错误分支：401 密钥错、429 限流、403 无权限、
+456 配额用尽（DeepL 特有）。这几条重试多少次结果都一样，给了明确文案用户可以
+直接去改设置，比一句「返回 HTTP 429」有用得多。
+]]
+function AI.http_error_message(code, raw)
+    if code == 401 then
+        return _("API密钥无效或已过期，请检查密钥")
+    end
+    if code == 403 then
+        return _("没有访问权限，请检查密钥或账户状态")
+    end
+    if code == 429 then
+        return _("请求太频繁，已被限流，请稍后再试")
+    end
+    if code == 456 then
+        return _("配额已用尽")
+    end
+    if type(code) == "number" and code >= 500 then
+        return _("翻译服务暂时不可用，请稍后再试")
+    end
+    return string.format(_("翻译服务返回 HTTP %s"), tostring(code))
+end
+
+-- 是否值得再试一次。网络层失败和 5xx 才重试；其余（含 401/429/456）不重试。
+function AI.is_retryable(err)
+    if type(err) ~= "table" then return false end
+    if err.kind == "network" then return true end
+    if err.kind == "http" and type(err.status) == "number" and err.status >= 500 then
+        return true
+    end
+    return false
+end
+
+-- 退避用。包一层是为了测试里能换成空实现，不然跑一次测试要真睡好几秒。
+function AI.sleep(seconds)
+    local ok, socket = pcall(require, "socket")
+    if ok and socket and socket.sleep then socket.sleep(seconds) end
+end
+
+--[[--
+带重试的 POST。
+
+对 self.http_post（可注入）做包装：失败时按 2 次上限退避重试，且总耗时不超过
+AI.RETRY_BUDGET。返回结构与 http_post 一致。
+]]
+function AI:post(url, body, headers, opts)
+    opts = opts or {}
+    local post = self.http_post or AI.http_post
+    local timeout = opts.timeout or AI.TIMEOUT
+    local budget = opts.budget or AI.RETRY_BUDGET
+    local sleep = self.sleep or AI.sleep
+    local started = os.time()
+    local delay = AI.RETRY_DELAY
+    local attempts = 0
+
+    while true do
+        local data, err = post(url, body, headers, timeout)
+        if data then return data end
+        -- 不重试的错误直接返回，别浪费用户时间。
+        if attempts >= AI.RETRY_TIMES or not AI.is_retryable(err) then
+            return nil, err
+        end
+        local elapsed = os.time() - started
+        -- 睡完这次退避，还得留够一次完整请求的超时，否则重试注定再超时。
+        if elapsed + delay + timeout > budget then
+            logger.dbg("wordgloss: AI retry skipped, budget exhausted:", tostring(elapsed))
+            return nil, err
+        end
+        attempts = attempts + 1
+        logger.warn("wordgloss: AI request failed, retry", attempts, "/", AI.RETRY_TIMES,
+            tostring(err and err.message))
+        sleep(delay)
+        delay = delay * AI.RETRY_FACTOR
+    end
+end
+
+-- 单次 POST JSON。可注入（测试用）。
+-- 成功返回解码后的 data；失败返回 nil, { kind=..., code=..., message=..., raw=... }。
 function AI.http_post(url, body, headers, timeout)
     local http = require("socket.http")
     local ltn12 = require("ltn12")
@@ -189,7 +276,9 @@ function AI.http_post(url, body, headers, timeout)
     logger.dbg("wordgloss: AI POST", url, "body=", body:sub(1, 120))
 
     socketutil:set_timeout(timeout or AI.TIMEOUT, timeout or AI.TIMEOUT)
-    local code, _, status = http.request{
+    -- luasocket 用表参数调用时：成功返回 1, code, headers, status；
+    -- 失败返回 nil, errmsg。第一个返回值是"有没有连上"，不是状态码。
+    local ok, code, _headers, status = http.request{
         url = url,
         method = "POST",
         headers = all_headers,
@@ -199,24 +288,40 @@ function AI.http_post(url, body, headers, timeout)
     socketutil:reset_timeout()
 
     local raw = table.concat(response)
-    logger.dbg("wordgloss: AI response", "code=", tostring(code),
+    logger.dbg("wordgloss: AI response", "ok=", tostring(ok), "code=", tostring(code),
         "status=", tostring(status), "raw=", raw:sub(1, 160))
 
-    local ok, data = pcall(json.decode, raw)
-    if not ok or not data then
+    -- 连不上 / DNS / 超时：ok 为 nil，第二个返回值是 luasocket 的错误消息。
+    if not ok then
+        logger.warn("wordgloss: AI network error:", tostring(code))
+        return nil, {
+            kind = "network",
+            code = nil,
+            message = _("网络连接失败，请检查网络"),
+            detail = tostring(code),
+            raw = raw:sub(1, 200),
+        }
+    end
+
+    local decoded, data = pcall(json.decode, raw)
+    if not decoded or not data then
         logger.warn("wordgloss: AI HTTP error:", tostring(code), tostring(status), raw:sub(1, 160))
-        local message
-        if not code or code == 1 then
-            message = _("网络连接失败，请检查网络")
-        else
-            message = string.format(_("翻译服务返回 HTTP %s"), tostring(code))
-        end
-        return nil, { code = code, message = message, detail = tostring(status), raw = raw:sub(1, 200) }
+        return nil, {
+            kind = "http",
+            status = code,
+            code = code,
+            message = (code == 200)
+                and _("翻译服务返回的内容无法解析")
+                or AI.http_error_message(code, raw),
+            detail = tostring(status),
+            raw = raw:sub(1, 200),
+        }
     end
     if type(data) == "table" and data.error then
         local error_message = type(data.error) == "table" and (data.error.message or data.error.code)
             or data.error
         return nil, {
+            kind = "api",
             code = code,
             message = tostring(error_message or _("翻译服务错误")),
             raw = raw:sub(1, 200),
@@ -310,10 +415,9 @@ function AI:translate_chat(words, cfg, opts)
         },
         temperature = 0.2,
     })
-    local post = self.http_post or AI.http_post
-    local data, err = post(url, body, {
+    local data, err = self:post(url, body, {
         ["Authorization"] = "Bearer " .. tostring(cfg.api_key),
-    }, opts.timeout)
+    }, opts)
     if not data then return nil, err end
     local results = AI.parse_translations(data, #words)
     if not results then
@@ -341,10 +445,9 @@ function AI:translate_deepl(words, cfg, opts)
         text = words,
         target_lang = "ZH",
     })
-    local post = self.http_post or AI.http_post
-    local data, err = post(AI.deepl_server(cfg.api_type) .. AI.DEEPL_PATH, body, {
+    local data, err = self:post(AI.deepl_server(cfg.api_type) .. AI.DEEPL_PATH, body, {
         ["Authorization"] = "DeepL-Auth-Key " .. tostring(cfg.api_key),
-    }, opts.timeout)
+    }, opts)
     if not data then return nil, err end
     local list = data.translations
     if type(list) ~= "table" or #list < #words then
