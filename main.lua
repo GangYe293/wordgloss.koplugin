@@ -35,7 +35,7 @@ local wordgloss = WidgetContainer:extend{
 }
 
 -- 与 _meta.lua 里的 version 保持一致：菜单「关于」显示它，更新器拿它比大小。
-wordgloss.VERSION = "1.7.0"
+wordgloss.VERSION = "1.8.0"
 
 local SETTING_PREFIX = "wordgloss_"
 local AUTO_PREFETCH_COOLDOWN = 30   -- 自动预取的两次尝试之间至少间隔多少秒
@@ -808,6 +808,8 @@ function wordgloss:prefetch_options(silent)
         max_items = tonumber(self:getSetting("gloss_max_items", 2)) or 2,
         -- 释义来源：本地优先 / 仅本地 / 仅在线（默认本地优先）
         gloss_source = self:getGlossSource(),
+        -- 在线引擎：edge（免费免密钥）/ glm / siliconflow / deepl / deepseek / openai
+        online_engine = self:getSetting("ai_engine", "edge"),
         silent = silent,
     }
 end

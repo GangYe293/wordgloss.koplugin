@@ -903,6 +903,208 @@ function UI.gloss_source_menu(plugin)
     }
 end
 
+--[[--
+单个引擎的设置。
+
+结构照 ai_translator.koplugin：API密钥 / Base URL / 模型。两处按本插件的场景调整：
+  1. DeepL 去掉「翻译自 / 翻译至」——注释只可能是英译中，目标语言写死中文；
+  2. 末尾那行置灰的「API密钥：已设置」不要了，状态并进 API密钥 自己的标题。
+
+配置存在本插件设置里（wordgloss_ai_*）；本插件没填时回退读全局同名 key，
+所以另一款 AI 翻译插件里填过的密钥可以直接复用，不必再填一遍。
+]]
+function UI.ai_engine_menu(plugin, engine)
+    local AI = require("wordgloss_ai")
+    local items = {}
+    local function key_of(suffix)
+        return "ai_" .. engine.id .. "_" .. suffix
+    end
+    local function value_of(suffix, default)
+        local own = plugin:getSetting(key_of(suffix), nil)
+        if own ~= nil and own ~= "" then return own end
+        local shared = AI.default_get(engine.id .. "_" .. suffix)
+        if shared ~= nil then return shared end
+        return default
+    end
+    local function save(suffix, value)
+        -- 只写自己的设置，不去动别的插件的全局配置。
+        plugin:saveSetting(key_of(suffix), value)
+    end
+    local function trimmed(value)
+        return tostring(value or ""):match("^%s*(.-)%s*$")
+    end
+
+    -- API密钥：标题带"已设置 / 未设置"，不另起一行。
+    table.insert(items, {
+        text_func = function()
+            local key = value_of("api_key", "")
+            return key ~= "" and _("API密钥：已设置") or _("API密钥：未设置")
+        end,
+        keep_menu_open = true,
+        callback = function(menu)
+            UI.input({
+                title = T(_("%1 API密钥"), engine.name),
+                description = engine.key_help and T(_("获取地址：%1"), engine.key_help) or nil,
+                value = value_of("api_key", ""),
+            }, function(value)
+                local text = trimmed(value)
+                save("api_key", text ~= "" and text or nil)
+                if menu and menu.updateItems then menu:updateItems() end
+            end)
+        end,
+    })
+
+    if engine.kind == "openai" then
+        table.insert(items, {
+            text_func = function()
+                return T(_("Base URL：%1"), value_of("base_url", engine.base or ""))
+            end,
+            keep_menu_open = true,
+            callback = function(menu)
+                UI.input({
+                    title = T(_("%1 Base URL"), engine.name),
+                    value = value_of("base_url", engine.base or ""),
+                }, function(value)
+                    local text = trimmed(value)
+                    save("base_url", text ~= "" and text or nil)
+                    if menu and menu.updateItems then menu:updateItems() end
+                end)
+            end,
+        })
+
+        -- DeepSeek 有两个模型可选，其余引擎手填模型名。
+        if engine.models then
+            local model_items = {}
+            for _, model in ipairs(engine.models) do
+                table.insert(model_items, {
+                    text = model.name,
+                    radio = true,
+                    checked_func = function()
+                        return value_of("model", engine.model) == model.id
+                    end,
+                    callback = function() save("model", model.id) end,
+                })
+            end
+            table.insert(items, {
+                text_func = function()
+                    return T(_("模型：%1"), value_of("model", engine.model))
+                end,
+                sub_item_table = model_items,
+            })
+        else
+            table.insert(items, {
+                text_func = function()
+                    return T(_("模型名：%1"), value_of("model", engine.model))
+                end,
+                keep_menu_open = true,
+                callback = function(menu)
+                    UI.input({
+                        title = T(_("%1 模型名"), engine.name),
+                        value = value_of("model", engine.model),
+                    }, function(value)
+                        local text = trimmed(value)
+                        save("model", text ~= "" and text or nil)
+                        if menu and menu.updateItems then menu:updateItems() end
+                    end)
+                end,
+            })
+        end
+    end
+
+    if engine.kind == "deepl" then
+        table.insert(items, {
+            text_func = function()
+                return value_of("api_type", "free") == "pro"
+                    and _("API类型：专业版") or _("API类型：免费")
+            end,
+            sub_item_table = {
+                {
+                    text = _("免费API"),
+                    radio = true,
+                    checked_func = function()
+                        return value_of("api_type", "free") ~= "pro"
+                    end,
+                    callback = function() save("api_type", "free") end,
+                },
+                {
+                    text = _("专业版API"),
+                    radio = true,
+                    checked_func = function()
+                        return value_of("api_type", "free") == "pro"
+                    end,
+                    callback = function() save("api_type", "pro") end,
+                },
+            },
+        })
+    end
+
+    return {
+        text = T(_("%1设置"), engine.name),
+        sub_item_table = items,
+    }
+end
+
+--[[--
+联网设置：用哪个在线引擎，以及各引擎的密钥 / 地址 / 模型。
+
+上面一行是当前引擎（单选），下面按「免费」「收费」分组放各引擎的设置，
+与 ai_translator.koplugin 的排法一致。默认 Edge：免费、免密钥、开箱可用。
+]]
+function UI.network_menu(plugin)
+    local AI = require("wordgloss_ai")
+    local function current_engine()
+        return AI.by_id(plugin:getSetting("ai_engine", AI.DEFAULT_ENGINE))
+            or AI.by_id(AI.DEFAULT_ENGINE)
+    end
+
+    local engine_items = {}
+    for _, engine in ipairs(AI.ENGINES) do
+        table.insert(engine_items, {
+            text = engine.name,
+            radio = true,
+            checked_func = function()
+                return current_engine().id == engine.id
+            end,
+            callback = function()
+                plugin:saveSetting("ai_engine", engine.id)
+                if engine.kind ~= "edge" then
+                    local own = plugin:getSetting("ai_" .. engine.id .. "_api_key", nil)
+                    local shared = AI.default_get(engine.id .. "_api_key")
+                    if (own == nil or own == "") and shared == nil then
+                        UI.showInfo(T(_("已选%1：请在「%2设置」里填 API密钥"),
+                            engine.name, engine.name), 4)
+                    end
+                end
+            end,
+        })
+    end
+
+    local function group(title, engines)
+        local items = {}
+        for _, engine in ipairs(engines) do
+            if engine.kind ~= "edge" then
+                table.insert(items, UI.ai_engine_menu(plugin, engine))
+            end
+        end
+        return { text = title, sub_item_table = items }
+    end
+
+    return {
+        text = _("联网设置"),
+        sub_item_table = {
+            {
+                text_func = function()
+                    return T(_("当前：%1"), current_engine().name)
+                end,
+                sub_item_table = engine_items,
+                separator = true,
+            },
+            group(_("免费"), AI.free_engines()),
+            group(_("收费"), AI.paid_engines()),
+        },
+    }
+end
+
 ------------------------------------------------------------------------
 -- 关于 / 更新
 ------------------------------------------------------------------------
@@ -1160,6 +1362,7 @@ function UI.build_prefetch_menu(plugin)
         return prefetch ~= nil and prefetch:is_running()
     end
 
+    table.insert(items, UI.network_menu(plugin))
     table.insert(items, UI.gloss_source_menu(plugin))
     table.insert(items, {
         text = _("翻译当前章的生词"),

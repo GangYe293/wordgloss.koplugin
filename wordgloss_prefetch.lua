@@ -22,6 +22,7 @@ local GlossMod = require("wordgloss_gloss")
 local Lexicon = require("wordgloss_lexicon")
 local Providers = require("wordgloss_providers")
 local Dict = require("wordgloss_dict")
+local AI = require("wordgloss_ai")
 
 local Prefetch = {}
 
@@ -58,6 +59,8 @@ local function default_deps(plugin_path)
         epub = Epub,
         gloss = GlossMod,
         providers = Providers,
+        -- 在线引擎：edge（免费免密钥）/ glm / siliconflow / deepl / deepseek / openai
+        ai = AI:new{ providers = Providers },
     }
 end
 
@@ -96,6 +99,7 @@ function Prefetch.run_worker(args, deps)
     deps = deps or default_deps(args.plugin_path)
     local cache, book, tools = deps.cache, deps.book, deps.tools
     local lexicon, gloss_mod, providers = deps.lexicon, deps.gloss, deps.providers
+    local ai = deps.ai or AI:new{ providers = providers }
     local cache_lang = args.cache_lang or "zh"
     local lang = args.target_lang or "zh-Hans"
     local book_id = args.book_id
@@ -247,8 +251,12 @@ function Prefetch.run_worker(args, deps)
             local texts = {}
             for position, item in ipairs(missing) do texts[position] = item.text end
             local since_write = 0
-            providers.translate_all(texts, args.source_lang or "auto", lang,
-                function(position, text, translation)
+            ai:translate_all(texts, {
+                engine = args.online_engine,
+                source_lang = args.source_lang or "auto",
+                target_lang = lang,
+                max_gloss_chars = args.max_gloss_chars,
+                on_result = function(position, text, translation)
                     local item = missing[position]
                     if not item then return end
                     -- 在线接口不返回词性，所以 pos 基本是 nil（有就带着，没有就空着）。
@@ -264,7 +272,8 @@ function Prefetch.run_worker(args, deps)
                         write_progress()
                     end
                 end,
-                cancelled)
+                should_stop = cancelled,
+            })
         elseif #missing > 0 and not use_online then
             -- 仅本地模式：没查到的词也记一条空记录，免得每次翻页重试。
             for _, item in ipairs(missing) do

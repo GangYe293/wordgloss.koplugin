@@ -156,6 +156,9 @@ end
 ]]
 function Providers.translate_all(texts, source_lang, target_lang, on_result, should_stop)
     local results = {}
+    -- 位置必须自己数：results[#results + 1] = nil 不会让数组变长，翻译失败的词
+    -- 会把后面所有词往前挤，释义就串位了（翻错的词顶到别的词头上）。
+    local position = 0
     local first_error
     for _, chunk in ipairs(Providers.plan_chunks(texts)) do
         if should_stop and should_stop() then break end
@@ -176,9 +179,10 @@ function Providers.translate_all(texts, source_lang, target_lang, on_result, sho
             end
         end
         for index, text in ipairs(chunk) do
+            position = position + 1
             local translated = chunk_results and chunk_results[index]
-            results[#results + 1] = translated
-            if on_result then on_result(#results, text, translated) end
+            results[position] = translated
+            if on_result then on_result(position, text, translated) end
         end
     end
     return results, first_error

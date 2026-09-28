@@ -7,11 +7,11 @@ WordGloss annotates difficult words with a short Chinese meaning printed directl
 book by a single byte**. No `<ruby>` tags are injected, no XHTML is rewritten; the glosses
 exist only inside the plugin's own cache and paint layer.
 
-Current version: **1.7.0** (matches `_meta.lua`).
+Current version: **1.8.0** (matches `_meta.lua`).
 
 **[English](README.md) | [简体中文](README.zh-CN.md)**
 
-![version](https://img.shields.io/badge/version-1.7.0-blue)
+![version](https://img.shields.io/badge/version-1.8.0-blue)
 ![platform](https://img.shields.io/badge/platform-KOReader-green)
 ![license](https://img.shields.io/badge/license-GPL--3.0-orange)
 
@@ -75,8 +75,8 @@ Current version: **1.7.0** (matches `_meta.lua`).
 
 ## Installation
 
-1. Download `wordgloss-1.7.0.zip` (full package, includes the offline dictionary) or
-   `wordgloss-1.7.0-code.zip` (code only — enough if the dictionary is already installed);
+1. Download `wordgloss-1.8.0.zip` (full package, includes the offline dictionary) or
+   `wordgloss-1.8.0-code.zip` (code only — enough if the dictionary is already installed);
    both are attached to the release.
 2. Extract / copy it into KOReader's `plugins/` directory. The final layout **must** be:
 
@@ -145,7 +145,7 @@ Top level has just seven entries; every option lives inside one of them:
 | **Vocabulary size** | Beginner 1,500 / Intermediate 3,000 / Advanced 5,000, or a custom threshold. |
 | **Gloss settings** | Everything about the gloss text. |
 | **Underline settings** | Everything about the line under the word. |
-| **Translate settings** | **Gloss source** (`Local first` / `Local only` / `Online only`), then translate current chapter / translate whole book (re-translate all) / show progress / stop, plus the "auto-translate while reading" toggle (off by default). |
+| **Translate settings** | **Network settings** (pick the online engine and its key), then **Gloss source** (`Local first` / `Local only` / `Online only`), then translate current chapter / translate whole book (re-translate all) / show progress / stop, plus the "auto-translate while reading" toggle (off by default). |
 | **Clear gloss data** | Maintenance: `Clear this book's gloss data` / `Clear all cached glosses` / **`Backfill part of speech from the local dictionary`** (offline). |
 | **About** | Version, author, Xiaohongshu ID, `Check for updates` (below), and the daily auto-check toggle. |
 
@@ -340,6 +340,20 @@ node runlua.js <tests/wordgloss> <tests/wordgloss>/dump_menu.lua
 
 ## Changelog
 
+- **1.8.0** — **the online engine is now selectable.** The translate menu gained a
+  `Network settings` entry: Microsoft Edge stays the default (free, no key), and you can
+  switch to Zhipu GLM-4 Flash or SiliconFlow (free tier), or to DeepL, DeepSeek and any
+  OpenAI-compatible endpoint (paid, key required). The layout follows
+  ai_translator.koplugin: the current engine on top, then **Free** / **Paid** groups with
+  each engine's settings underneath. DeepL's "translate from / translate to" pickers are
+  gone — a gloss can only be English → Chinese, so the target is fixed. Keys are read from
+  the plugin's own settings first and fall back to the same key stored globally by the AI
+  translator plugin, so an existing key does not have to be entered twice. Models are
+  requested in batches of 20 words (25 for DeepL) and asked to reply with a JSON array;
+  unparsable batches fall back to per-word retries, and the timeout was raised to 45 s.
+  Translation still runs in a subprocess, so page turns are unaffected. This release also
+  fixes an old bug: when one word failed to translate, every later word's gloss shifted
+  up by one position.
 - **1.7.0** — **Menu and message cleanup.** Removed every "Note: …" line from the UI
   (start glossing, gloss style, gloss font, line density, part of speech, translate menu,
   update dialog — 7 in total), so menus list options only. In `About`, version and author

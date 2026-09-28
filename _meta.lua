@@ -5,7 +5,7 @@ local _ = require("gettext")
 
 return {
     name = "wordgloss",
-    version = "1.7.0",
+    version = "1.8.0",
     fullname = _("WordGloss（生词注释）"),
     description = _([[把生词的中文释义注在词的上方或下方（类似 Kindle Word Wise）。
 词汇量分初级/中级/高级，注释位置、下划线样式（实线/虚线/波浪线）与粗细、密度可调；
