@@ -916,14 +916,21 @@ end
 function UI.ai_engine_menu(plugin, engine)
     local AI = require("wordgloss_ai")
     local items = {}
+    -- 设置菜单的标题用 menu_name（较短），引擎选择列表里仍用 name（带具体模型名）。
+    local label = engine.menu_name or engine.name
     local function key_of(suffix)
         return "ai_" .. engine.id .. "_" .. suffix
     end
     local function value_of(suffix, default)
         local own = plugin:getSetting(key_of(suffix), nil)
         if own ~= nil and own ~= "" then return own end
-        local shared = AI.default_get(engine.id .. "_" .. suffix)
-        if shared ~= nil then return shared end
+        -- 只有密钥回退全局：同一个 key 打哪家都一样，可以共用。
+        -- 地址和模型名是跟服务商绑定的，搬别人的值只会配错——通用OpenAI 就曾经
+        -- 因为读到别的插件存的模型名，显示成了 glm-4-flash。
+        if suffix == "api_key" then
+            local shared = AI.default_get(engine.id .. "_" .. suffix)
+            if shared ~= nil then return shared end
+        end
         return default
     end
     local function save(suffix, value)
@@ -943,7 +950,7 @@ function UI.ai_engine_menu(plugin, engine)
         keep_menu_open = true,
         callback = function(menu)
             UI.input({
-                title = T(_("%1 API密钥"), engine.name),
+                title = T(_("%1 API密钥"), label),
                 description = engine.key_help and T(_("获取地址：%1"), engine.key_help) or nil,
                 value = value_of("api_key", ""),
             }, function(value)
@@ -962,7 +969,7 @@ function UI.ai_engine_menu(plugin, engine)
             keep_menu_open = true,
             callback = function(menu)
                 UI.input({
-                    title = T(_("%1 Base URL"), engine.name),
+                    title = T(_("%1 Base URL"), label),
                     value = value_of("base_url", engine.base or ""),
                 }, function(value)
                     local text = trimmed(value)
@@ -999,7 +1006,7 @@ function UI.ai_engine_menu(plugin, engine)
                 keep_menu_open = true,
                 callback = function(menu)
                     UI.input({
-                        title = T(_("%1 模型名"), engine.name),
+                        title = T(_("%1 模型名"), label),
                         value = value_of("model", engine.model),
                     }, function(value)
                         local text = trimmed(value)
@@ -1039,7 +1046,7 @@ function UI.ai_engine_menu(plugin, engine)
     end
 
     return {
-        text = T(_("%1设置"), engine.name),
+        text = T(_("%1设置"), label),
         sub_item_table = items,
     }
 end
@@ -1067,22 +1074,28 @@ function UI.network_menu(plugin)
             end,
             callback = function()
                 plugin:saveSetting("ai_engine", engine.id)
-                if engine.kind ~= "edge" then
+                -- 免密钥的两个引擎（Edge / Google）不用提示填密钥。
+                if engine.kind == "openai" or engine.kind == "deepl" then
                     local own = plugin:getSetting("ai_" .. engine.id .. "_api_key", nil)
                     local shared = AI.default_get(engine.id .. "_api_key")
                     if (own == nil or own == "") and shared == nil then
                         UI.showInfo(T(_("已选%1：请在「%2设置」里填 API密钥"),
-                            engine.name, engine.name), 4)
+                            engine.name, engine.menu_name or engine.name), 4)
                     end
                 end
             end,
         })
     end
 
+    -- 需要填东西的只有 OpenAI 兼容和 DeepL；Edge 与 Google 免密钥，不给设置入口。
+    local function needs_settings(engine)
+        return engine.kind == "openai" or engine.kind == "deepl"
+    end
+
     local function group(title, engines)
         local items = {}
         for _, engine in ipairs(engines) do
-            if engine.kind ~= "edge" then
+            if needs_settings(engine) then
                 table.insert(items, UI.ai_engine_menu(plugin, engine))
             end
         end

@@ -30,7 +30,12 @@ AI.ENGINES = {
         id = "edge", name = "Microsoft Edge 免费翻译", free = true, kind = "edge",
     },
     {
-        id = "glm", name = "智谱GLM-4 Flash", free = true, kind = "openai",
+        id = "google", name = "Google翻译", free = true, kind = "google",
+    },
+    {
+        -- name 用在引擎选择列表里（带具体模型名），menu_name 用在设置菜单标题上。
+        id = "glm", name = "智谱GLM-4 Flash", menu_name = "智谱GLM",
+        free = true, kind = "openai",
         base = "https://open.bigmodel.cn/api/paas/v4", model = "glm-4-flash",
         key_hint = "xxxx.xxxx.xxxx",
         key_help = "https://open.bigmodel.cn/usercenter/apikeys",
@@ -47,18 +52,18 @@ AI.ENGINES = {
         key_help = "https://www.deepl.com/pro-api",
     },
     {
+        -- 去掉了 reasoner（思考模式）：翻译单个单词用不上推理链，慢且贵。
+        -- 只剩一个模型后就没必要做单选了，改成手填（默认 deepseek-chat），换模型也方便。
         id = "deepseek", name = "DeepSeek翻译", free = false, kind = "openai",
         base = "https://api.deepseek.com", model = "deepseek-chat",
-        models = {
-            { id = "deepseek-chat", name = "DeepSeek Chat（非思考模式）" },
-            { id = "deepseek-reasoner", name = "DeepSeek Reasoner（思考模式）" },
-        },
         key_hint = "sk-xxxxxxxxxxxxxxxxxxxxxxxx",
         key_help = "https://platform.deepseek.com/",
     },
     {
+        -- 通用就是什么都自己填：地址与模型名都不给默认值。
+        -- 而且这两个字段不做全局回退——别的插件存的地址/模型名放到这里是错的。
         id = "openai", name = "通用OpenAI翻译", free = false, kind = "openai",
-        base = "https://api.siliconflow.cn/v1", model = "Qwen/Qwen2.5-72B-Instruct",
+        base = "", model = "",
         key_hint = "YOUR_API_KEY_FROM_CLOUD_SILICONFLOW_CN",
         key_help = "任意 OpenAI 兼容服务",
     },
@@ -66,6 +71,8 @@ AI.ENGINES = {
 
 AI.CHAT_PATH = "/chat/completions"
 AI.DEEPL_PATH = "/v2/translate"
+-- Google 的免费 gtx 端点，与 KOReader 内置翻译器同源：免密钥、GET、一次可以带多个 q。
+AI.GOOGLE_ENDPOINT = "https://translate.googleapis.com/translate_a/single"
 -- AI 一次能处理的词数比 Edge 大得多（Edge 只有 12），但 Kindle 内存小，
 -- 一次别塞太多；回复太长也容易在弱网下超时。
 AI.MAX_ITEMS = 20
@@ -128,7 +135,9 @@ function AI:new(opts)
     return setmetatable({
         getter = opts.getter or opts.get,
         http_post = opts.http_post,
+        http_get = opts.http_get,
         providers = opts.providers,
+        sleep = opts.sleep,
     }, { __index = self })
 end
 
@@ -138,8 +147,27 @@ function AI:edge_backend()
     return self.providers or require("wordgloss_providers")
 end
 
-function AI:get(key, default)
-    local value = self.getter and self.getter(key) or AI.default_get(key)
+-- 只读本插件自己的设置，不回退全局。
+-- 密钥可以共用（同一个 key 打哪家都一样），但 Base URL 和模型名是跟服务商绑定的，
+-- 把别的插件存的值搬过来只会配错——通用OpenAI 就曾经因此显示成 glm-4-flash。
+function AI.default_get_own(key)
+    local store = rawget(_G, "G_reader_settings")
+    if not store or not store.readSetting then return nil end
+    local value = store:readSetting(AI.SETTING_PREFIX .. key)
+    if value == nil or value == "" then return nil end
+    return value
+end
+
+-- own_only = true 时只读本插件自己的设置，不去全局找。
+function AI:get(key, default, own_only)
+    local value
+    if self.getter then
+        value = self.getter(key)
+    elseif own_only then
+        value = AI.default_get_own(key)
+    else
+        value = AI.default_get(key)
+    end
     if value == nil or value == "" then return default end
     return value
 end
@@ -160,8 +188,8 @@ function AI:config(engine_id)
         kind = engine.kind,
         name = engine.name,
         api_key = self:get(engine.id .. "_api_key", ""),
-        base_url = self:get(engine.id .. "_base_url", engine.base or ""),
-        model = self:get(engine.id .. "_model", engine.model or ""),
+        base_url = self:get(engine.id .. "_base_url", engine.base or "", true),
+        model = self:get(engine.id .. "_model", engine.model or "", true),
         api_type = self:get(engine.id .. "_api_type", "free"),  -- 仅 DeepL 用
     }
 end
@@ -219,14 +247,13 @@ function AI.sleep(seconds)
 end
 
 --[[--
-带重试的 POST。
+带重试的请求包装。
 
-对 self.http_post（可注入）做包装：失败时按 2 次上限退避重试，且总耗时不超过
-AI.RETRY_BUDGET。返回结构与 http_post 一致。
+do_request 是一次尝试（无参，返回 data, err）。失败时按 2 次上限退避重试，且总耗时
+不超过 AI.RETRY_BUDGET。POST 与 GET 都走这里，重试策略不用写两遍。
 ]]
-function AI:post(url, body, headers, opts)
+function AI:attempt(do_request, opts)
     opts = opts or {}
-    local post = self.http_post or AI.http_post
     local timeout = opts.timeout or AI.TIMEOUT
     local budget = opts.budget or AI.RETRY_BUDGET
     local sleep = self.sleep or AI.sleep
@@ -235,7 +262,7 @@ function AI:post(url, body, headers, opts)
     local attempts = 0
 
     while true do
-        local data, err = post(url, body, headers, timeout)
+        local data, err = do_request()
         if data then return data end
         -- 不重试的错误直接返回，别浪费用户时间。
         if attempts >= AI.RETRY_TIMES or not AI.is_retryable(err) then
@@ -253,6 +280,13 @@ function AI:post(url, body, headers, opts)
         sleep(delay)
         delay = delay * AI.RETRY_FACTOR
     end
+end
+
+function AI:post(url, body, headers, opts)
+    opts = opts or {}
+    local post = self.http_post or AI.http_post
+    local timeout = opts.timeout
+    return self:attempt(function() return post(url, body, headers, timeout) end, opts)
 end
 
 -- 单次 POST JSON。可注入（测试用）。
@@ -462,6 +496,100 @@ function AI:translate_deepl(words, cfg, opts)
 end
 
 -- ---------------------------------------------------------------------------
+-- Google 免费翻译（GET，一个 q 带一个词）
+-- ---------------------------------------------------------------------------
+
+-- GET JSON。可注入（测试用）。返回结构与 http_post 一致。
+function AI.http_get(url, headers, timeout)
+    local http = require("socket.http")
+    local ltn12 = require("ltn12")
+    local json = require("json")
+    local socketutil = require("socketutil")
+
+    local response = {}
+    logger.dbg("wordgloss: AI GET", url)
+
+    socketutil:set_timeout(timeout or AI.TIMEOUT, timeout or AI.TIMEOUT)
+    local ok, code, _headers, status = http.request{
+        url = url,
+        method = "GET",
+        headers = headers or {},
+        sink = ltn12.sink.table(response),
+    }
+    socketutil:reset_timeout()
+
+    local raw = table.concat(response)
+    if not ok then
+        logger.warn("wordgloss: AI network error:", tostring(code))
+        return nil, {
+            kind = "network",
+            code = nil,
+            message = _("网络连接失败，请检查网络"),
+            detail = tostring(code),
+            raw = raw:sub(1, 200),
+        }
+    end
+
+    local decoded, data = pcall(json.decode, raw)
+    if not decoded or not data then
+        logger.warn("wordgloss: AI HTTP error:", tostring(code), tostring(status), raw:sub(1, 160))
+        return nil, {
+            kind = "http",
+            status = code,
+            code = code,
+            message = (code == 200)
+                and _("翻译服务返回的内容无法解析")
+                or AI.http_error_message(code, raw),
+            detail = tostring(status),
+            raw = raw:sub(1, 200),
+        }
+    end
+    return data
+end
+
+-- 一个 q 带一个词。生词基本是字母和连字符，但缩写带撇号，还是转义一下。
+function AI.google_url(words)
+    local url = require("socket.url")
+    local parts = { AI.GOOGLE_ENDPOINT .. "?client=gtx&sl=en&tl=zh-CN&dt=t" }
+    for _, word in ipairs(words or {}) do
+        parts[#parts + 1] = "q=" .. url.escape(tostring(word))
+    end
+    return table.concat(parts, "&")
+end
+
+--[[--
+返回体前 N 项按序对应每个 q，data[i][1][1] 就是第 i 个词的译文。
+
+解析不出来就整块算失败，由调用方降级成逐条重试——Google 偶尔会回空或者换结构，
+与其猜不如退一步一个词一个词问。
+]]
+function AI.parse_google(data, expected)
+    if type(data) ~= "table" then return nil end
+    local results = {}
+    for index = 1, expected do
+        local block = data[index]
+        local piece = type(block) == "table" and type(block[1]) == "table"
+            and block[1][1] or nil
+        if type(piece) ~= "string" or piece == "" then return nil end
+        results[index] = piece
+    end
+    return results
+end
+
+function AI:translate_google(words, cfg, opts)
+    opts = opts or {}
+    local get = self.http_get or AI.http_get
+    local url = AI.google_url(words)
+    local data, err = self:attempt(function() return get(url, nil, opts.timeout) end, opts)
+    if not data then return nil, err end
+    local results = AI.parse_google(data, #words)
+    if not results then
+        return nil, { message = _("翻译服务返回的内容无法解析"), raw = tostring(data) }
+    end
+    return results
+end
+
+-- ---------------------------------------------------------------------------
 -- 对外入口
 -- ---------------------------------------------------------------------------
 
@@ -475,6 +603,9 @@ function AI:request(words, opts)
     end
     if cfg.kind == "deepl" then
         return self:translate_deepl(words, cfg, opts)
+    end
+    if cfg.kind == "google" then
+        return self:translate_google(words, cfg, opts)
     end
     return self:translate_chat(words, cfg, opts)
 end
