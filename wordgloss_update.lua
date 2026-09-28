@@ -34,6 +34,9 @@ Updater.STATE_KEY = "wordgloss_update"
 Updater.CHECK_INTERVAL = 24 * 60 * 60       -- 自动检查的间隔（一天一次）
 Updater.MAX_PACKAGE_BYTES = 12 * 1024 * 1024
 Updater.MAX_NOTES = 1200
+-- 下安装包时的总超时。socketutil 默认只有 60 秒，Kindle 上从 GitHub 下载
+-- （还要重定向到 objects.githubusercontent.com）经常不够，直接把它放宽。
+Updater.FILE_TOTAL_TIMEOUT = 300
 
 local Sha2 = require("wordgloss_sha2")
 
@@ -386,7 +389,24 @@ Updater.NETWORK_ERROR_PATTERNS = {
     "timeout", "timed out", "refused", "unreachable",
     "no route", "network is down", "network unreachable",
     "connection reset", "temporary failure", "closed",
+    -- luasocket 3.0-rc1 超时时给的是 "wantread"（老版本是 "timeout"），
+    -- Kindle 上慢网下载最常见的就是它。
+    "wantread", "connection aborted", "ssl", "no data",
 }
+
+-- 超时要单独说：用户看到"超时"会重试，看到"连接失败"会去查 WiFi。
+Updater.TIMEOUT_ERROR_PATTERNS = {
+    "timeout", "timed out", "wantread",
+}
+
+function Updater.is_timeout_error(message)
+    if type(message) ~= "string" or message == "" then return false end
+    local lowered = message:lower()
+    for _, pattern in ipairs(Updater.TIMEOUT_ERROR_PATTERNS) do
+        if lowered:find(pattern, 1, true) then return true end
+    end
+    return false
+end
 
 function Updater.is_network_error(message)
     if type(message) ~= "string" or message == "" then return false end
@@ -400,6 +420,9 @@ end
 -- 把英文的网络类错误换成人话；别的错误原样返回（HTTP 状态码要留给用户看）。
 function Updater.normalize_error(err)
     if type(err) ~= "string" then return err end
+    if Updater.is_timeout_error(err) then
+        return _("网络连接超时，请稍后重试")
+    end
     if Updater.is_network_error(err) then
         return _("网络连接失败，请检查网络")
     end
@@ -412,29 +435,28 @@ function Updater.default_http_get(url, destination, on_progress, max_bytes)
     local http = require("socket.http")
     local ltn12 = require("ltn12")
     local socketutil = require("socketutil")
-    local ok_socket, socket = pcall(require, "socket")
-    local skip = (ok_socket and socket and socket.skip)
-        or function(count, ...) return select(count + 1, ...) end
 
     local file, chunks, sink, received, limit_error
     if destination then
         file = io.open(destination, "wb")
         if not file then return nil, _("无法创建下载文件") end
-        local write = (ltn12.sink and ltn12.sink.file and ltn12.sink.file(file))
-            or function(chunk) if chunk then file:write(chunk) end return 1 end
         received = 0
-        sink = function(chunk, err)
-            if chunk then
-                if max_bytes and received + #chunk > max_bytes then
-                    limit_error = _("下载内容超过预期大小")
-                    return nil, limit_error
-                end
-                received = received + #chunk
-                if on_progress then on_progress(received, max_bytes) end
+        sink = function(chunk)
+            -- 流结束（正常结束或中途断开都走这里）。
+            -- 注意：别在 sink 里 close 文件。ltn12.sink.file 就是这么干的，
+            -- 结果下面再 close 一次时 Lua 5.1 直接抛
+            -- "attempt to use a closed file"，把整个更新流程打挂。
+            if not chunk then return 1 end
+            if max_bytes and received + #chunk > max_bytes then
+                limit_error = _("下载内容超过预期大小")
+                return nil, limit_error
             end
-            return write(chunk, err)
+            received = received + #chunk
+            if on_progress then on_progress(received, max_bytes) end
+            return file:write(chunk)
         end
-        socketutil:set_timeout(socketutil.FILE_BLOCK_TIMEOUT or 30, socketutil.FILE_TOTAL_TIMEOUT or 60)
+        -- 安装包可能几 MB，Kindle 的 WiFi 又慢，60 秒总超时不够用。
+        socketutil:set_timeout(socketutil.FILE_BLOCK_TIMEOUT or 30, Updater.FILE_TOTAL_TIMEOUT)
     else
         chunks = {}
         sink = (ltn12.sink and ltn12.sink.table and ltn12.sink.table(chunks))
@@ -442,7 +464,10 @@ function Updater.default_http_get(url, destination, on_progress, max_bytes)
         socketutil:set_timeout(socketutil.LARGE_BLOCK_TIMEOUT or 30, socketutil.LARGE_TOTAL_TIMEOUT or 60)
     end
 
-    local code, headers, status = skip(1, http.request{
+    -- http.request 成功返回 (1, code, headers, status)，失败返回 (nil, err)。
+    -- 别用 socket.skip：失败时它的行为跟期望不一致，会把错误消息塞进状态码的位置
+    -- （日志里那句「下载失败（HTTP wantread）」就是这么来的）。
+    local connected, code, headers, status = http.request{
         url = url,
         method = "GET",
         headers = {
@@ -451,18 +476,19 @@ function Updater.default_http_get(url, destination, on_progress, max_bytes)
         },
         sink = sink,
         redirect = true,
-    })
+    }
     socketutil:reset_timeout()
-    if file then file:close() end
+    -- 只关一次，且要兜住：Lua 5.1 对已关闭的句柄调 close 是抛错不是返回 nil。
+    if file then pcall(function() file:close() end) end
     if limit_error then
         remove_file(destination)
         return nil, limit_error
     end
-    -- code 是字符串 = luasocket 自己报错（DNS / 连接 / 超时），不是 HTTP 状态码。
+    -- 没连上 = luasocket 自己报错（DNS / 超时 / 连接被拒），根本没有 HTTP 状态码。
     -- 原文往上抛，由 _get 统一翻成人话。
-    if type(code) == "string" then
+    if not connected then
         remove_file(destination)
-        return nil, code
+        return nil, tostring(code or _("未知错误"))
     end
     if headers == nil or code ~= 200 then
         remove_file(destination)

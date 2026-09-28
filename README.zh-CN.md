@@ -4,7 +4,7 @@
 效果类似 Kindle 的 Word Wise。**原书一个字节都不改**——不加 ruby、不改 XHTML，
 生成的释义只存在于插件自己的缓存与渲染层里。
 
-当前版本 **1.8.2**（与 `_meta.lua` 一致）。
+当前版本 **1.8.3**（与 `_meta.lua` 一致）。
 
 **[简体中文](README.zh-CN.md) | [English](README.md)**
 
@@ -52,7 +52,7 @@
 
 ## 安装
 
-1. 下载 `wordgloss-1.8.2.zip`（完整包，含离线词典）或 `wordgloss-1.8.2-code.zip`
+1. 下载 `wordgloss-1.8.3.zip`（完整包，含离线词典）或 `wordgloss-1.8.3-code.zip`
    （只有代码，**本地已经有词典时用它就够**），两者都在 Release 里。
 2. 解压/复制到 KOReader 的 `plugins/` 目录，最终结构必须是：
 
@@ -300,6 +300,13 @@ node runlua.js <tests/wordgloss> <tests/wordgloss>/dump_menu.lua
 
 ## 版本变化
 
+- **1.8.3**：**修在线更新崩溃**。下载更新包时如果网络慢/超时（luasocket 报
+  `wantread`），`ltn12.sink.file` 会在流结束时自己关一次文件，我们的收尾又关了一次——
+  Lua 5.1 上重复 close 直接抛错 `attempt to use a closed file`，整个更新流程当场挂掉，
+  后面三个镜像源一个都没轮到。现在统一只用一处关闭（还包了 pcall 兜底）。
+  顺便：① 不再用 `socket.skip` 取返回值，改成直接判断 http.request 的第一个返回值，
+  「下载失败（HTTP wantread）」这种把超时当状态码的提示不会再出现，超时现在显示
+  「网络连接超时，请稍后重试」；② 下安装包的总超时从 60 秒放宽到 300 秒。
 - **1.8.2**：**引擎列表微调**。新增 Google翻译（免费、免密钥，与 Edge 同级，走
   Google 免费 gtx 接口，一次带多个词）。「智谱GLM-4 Flash设置」改名 **`智谱GLM设置`**
   （引擎选择列表里仍保留具体模型名）。DeepSeek 去掉了 reasoner（思考模式）——翻译
