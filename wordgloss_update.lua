@@ -376,6 +376,36 @@ end
 -- HTTP
 ------------------------------------------------------------------------
 
+--[[--
+luasocket 层就失败时，http.request 返回 (nil, err)，err 是英文原文，
+例如 DNS 挂掉的 "temporary failure in name resolution"。这类错误根本没有
+HTTP 状态码，直接甩英文给用户看不懂，统一翻成"网络连接失败"。
+]]
+Updater.NETWORK_ERROR_PATTERNS = {
+    "resolution", "resolve", "host not found", "dns",
+    "timeout", "timed out", "refused", "unreachable",
+    "no route", "network is down", "network unreachable",
+    "connection reset", "temporary failure", "closed",
+}
+
+function Updater.is_network_error(message)
+    if type(message) ~= "string" or message == "" then return false end
+    local lowered = message:lower()
+    for _, pattern in ipairs(Updater.NETWORK_ERROR_PATTERNS) do
+        if lowered:find(pattern, 1, true) then return true end
+    end
+    return false
+end
+
+-- 把英文的网络类错误换成人话；别的错误原样返回（HTTP 状态码要留给用户看）。
+function Updater.normalize_error(err)
+    if type(err) ~= "string" then return err end
+    if Updater.is_network_error(err) then
+        return _("网络连接失败，请检查网络")
+    end
+    return err
+end
+
 -- 下载/GET。destination 为空时把内容当字符串返回。
 -- on_progress(received, total_hint) 可选；max_bytes 超出就中断。
 function Updater.default_http_get(url, destination, on_progress, max_bytes)
@@ -428,6 +458,12 @@ function Updater.default_http_get(url, destination, on_progress, max_bytes)
         remove_file(destination)
         return nil, limit_error
     end
+    -- code 是字符串 = luasocket 自己报错（DNS / 连接 / 超时），不是 HTTP 状态码。
+    -- 原文往上抛，由 _get 统一翻成人话。
+    if type(code) == "string" then
+        remove_file(destination)
+        return nil, code
+    end
     if headers == nil or code ~= 200 then
         remove_file(destination)
         local reason = tostring(code or status or _("未知错误"))
@@ -450,7 +486,7 @@ function Updater:_get(url, destination, on_progress, max_bytes)
             logger.dbg("wordgloss: update fetch ok:", candidate)
             return ok
         end
-        last_error = err
+        last_error = Updater.normalize_error(err)
         logger.warn("wordgloss: update source failed:", candidate, tostring(err))
     end
     return nil, last_error or _("所有更新源都不可用")

@@ -400,10 +400,10 @@ function UI.level_menu(plugin)
     table.insert(items, {
         text_func = function()
             local custom = plugin:getSetting("custom_rank")
-            return custom and T(_("自定义阈值：%1"), custom) or _("自定义阈值…")
+            return custom and T(_("自定义：%1"), custom) or _("自定义…")
         end,
         checked_func = function() return plugin:getSetting("custom_rank") ~= nil end,
-        callback = function()
+        callback = function(menu)
             UI.spin({
                 title = _("词汇量级别的词频阈值"),
                 info = _("语料库排名超过它的词会被注释\n1500≈初级 / 3000≈中级 / 5000≈高级"),
@@ -414,6 +414,8 @@ function UI.level_menu(plugin)
                     plugin:saveSetting("custom_rank", value)
                     plugin:refreshDocumentStyles()
                     plugin:refreshGlosses(true)
+                    -- 这一项有 checked_func，菜单不会关，但标题里的数字要手动刷
+                    if menu and menu.updateItems then menu:updateItems() end
                 end,
             })
         end,
@@ -452,10 +454,6 @@ function UI.start_menu(plugin)
                     plugin:toggle_gloss_visibility(menu_self)
                 end,
             },
-            {
-                text = _("说明：释义缓存跨书共享，昨天转过的词今天换本书也能直接显示"),
-                enabled_func = function() return false end,
-            },
         },
     }
 end
@@ -482,10 +480,6 @@ function UI.mode_menu_item(plugin)
                     end,
                 })
             end
-            table.insert(items, {
-                text = _("说明：两种样式都不改动原书；「词下方小字」的顺序是 词→下划线→注释"),
-                enabled_func = function() return false end,
-            })
             return items
         end)(),
     }
@@ -513,18 +507,16 @@ function UI.font_menu_item(plugin)
             },
             {
                 text = _("选择字体…"),
-                callback = function()
+                keep_menu_open = true,
+                callback = function(menu)
                     UI.choose_font_file(function(file_path)
                         if not file_path or file_path == "" then return end
                         plugin:saveSetting("font_face", file_path)
                         plugin:refreshGlosses(true)
+                        if menu and menu.updateItems then menu:updateItems() end
                         UI.showInfo(T(_("注释字体：%1"), plugin:fontLabel() or file_path), 3)
                     end)
                 end,
-            },
-            {
-                text = _("说明：选 .ttf/.otf/.ttc 文件；没有汉字字形的纯英文字体会显示成方框"),
-                enabled_func = function() return false end,
             },
         },
     }
@@ -538,7 +530,10 @@ function UI.gloss_settings_menu(plugin)
             UI.mode_menu_item(plugin),
             {
                 text_func = function() return _("注释字号：") .. plugin:getSetting("font_size", 12) end,
-                callback = function()
+                -- keep_menu_open：调完字号回到这一层菜单，而不是掉回阅读页
+                -- （KOReader 对没有 checked_func 的项默认是执行完回调就关菜单）。
+                keep_menu_open = true,
+                callback = function(menu)
                     UI.spin({
                         title = _("注释字号"),
                         info = _("字太小看不清可以调大；调大会占用更多行间空间"),
@@ -548,6 +543,8 @@ function UI.gloss_settings_menu(plugin)
                             plugin:saveSetting("font_size", value)
                             plugin:refreshDocumentStyles()
                             plugin:refreshGlosses(true)
+                            -- 菜单上的「注释字号：12」要跟着变成新值
+                            if menu and menu.updateItems then menu:updateItems() end
                         end,
                     })
                 end,
@@ -558,7 +555,8 @@ function UI.gloss_settings_menu(plugin)
                     if max_per_page <= 0 then return _("每页注释上限：不限") end
                     return T(_("每页注释上限：%1（生僻的优先）"), max_per_page)
                 end,
-                callback = function()
+                keep_menu_open = true,
+                callback = function(menu)
                     UI.spin({
                         title = _("每页最多显示几条注释"),
                         info = _("一页生词太多时先注释最生僻的；0 表示不限"),
@@ -567,13 +565,15 @@ function UI.gloss_settings_menu(plugin)
                         callback = function(value)
                             plugin:saveSetting("max_per_page", value)
                             plugin:refreshGlosses(true)
+                            if menu and menu.updateItems then menu:updateItems() end
                         end,
                     })
                 end,
             },
             {
                 text_func = function() return _("释义长度上限：") .. plugin:getSetting("max_gloss_chars", 12) .. _(" 字") end,
-                callback = function()
+                keep_menu_open = true,
+                callback = function(menu)
                     UI.spin({
                         title = _("释义长度上限"),
                         info = _("超出部分会被截断，保证注释能塞进两行之间"),
@@ -582,6 +582,7 @@ function UI.gloss_settings_menu(plugin)
                         callback = function(value)
                             plugin:saveSetting("max_gloss_chars", value)
                             plugin:refreshGlosses(true)
+                            if menu and menu.updateItems then menu:updateItems() end
                         end,
                     })
                 end,
@@ -590,7 +591,8 @@ function UI.gloss_settings_menu(plugin)
                 text_func = function()
                     return T(_("注释偏移：%1 px"), plugin:getGlossOffset())
                 end,
-                callback = function()
+                keep_menu_open = true,
+                callback = function(menu)
                     UI.spin({
                         title = _("注释离单词的距离"),
                         info = _("正值把注释推离单词（词上方模式往上、词下方模式往下）；负值压近词身。\n范围 -20~40，0 = 紧贴单词。\n偏移变大时行距会自动加大，不会压到相邻的行"),
@@ -600,6 +602,7 @@ function UI.gloss_settings_menu(plugin)
                             plugin:saveSetting("gloss_offset", value)
                             plugin:refreshDocumentStyles()
                             plugin:refreshGlosses(true)
+                            if menu and menu.updateItems then menu:updateItems() end
                         end,
                     })
                 end,
@@ -611,10 +614,6 @@ function UI.gloss_settings_menu(plugin)
                     plugin:saveSetting("show_pos", not plugin:showPos())
                     plugin:refreshGlosses(true)
                 end,
-            },
-            {
-                text = _("说明：词性只有本地词典有，在线翻译没有；有就显示，没有就空着"),
-                enabled_func = function() return false end,
             },
             UI.font_menu_item(plugin),
             {
@@ -647,7 +646,8 @@ function UI.underline_settings_menu(plugin)
                 text_func = function()
                     return T(_("下划线偏移：%1 px"), plugin:getUnderlineOffset())
                 end,
-                callback = function()
+                keep_menu_open = true,
+                callback = function(menu)
                     UI.spin({
                         title = _("下划线离单词的距离"),
                         info = _("正值把下划线往下推、离单词更远；负值往上贴近词身。\n范围 -20~40，0 = 紧贴单词下方"),
@@ -657,6 +657,7 @@ function UI.underline_settings_menu(plugin)
                             plugin:saveSetting("underline_offset", value)
                             plugin:refreshDocumentStyles()
                             plugin:refreshGlosses(true)
+                            if menu and menu.updateItems then menu:updateItems() end
                         end,
                     })
                 end,
@@ -691,7 +692,8 @@ function UI.underline_style_menu_item(plugin)
                 text_func = function()
                     return _("下划线粗细：") .. plugin:getUnderlineThickness() .. _(" px")
                 end,
-                callback = function()
+                keep_menu_open = true,
+                callback = function(menu)
                     UI.spin({
                         title = _("下划线粗细"),
                         info = _("1~6 像素。调粗会占用更多行间空间，行距会自动跟着加大"),
@@ -701,6 +703,7 @@ function UI.underline_style_menu_item(plugin)
                             plugin:saveSetting("underline_thickness", value)
                             plugin:refreshDocumentStyles()
                             plugin:refreshGlosses(true)
+                            if menu and menu.updateItems then menu:updateItems() end
                         end,
                     })
                 end,
@@ -722,7 +725,7 @@ function UI.underline_style_menu_item(plugin)
                             text_func = function() return density_text(plugin, id) end,
                             radio = true,
                             checked_func = function() return plugin:getUnderlineDensity() == id end,
-                            callback = function()
+                            callback = function(menu)
                                 if id ~= "custom" then
                                     plugin:saveSetting("underline_density", id)
                                     plugin:refreshDocumentStyles()
@@ -740,6 +743,8 @@ function UI.underline_style_menu_item(plugin)
                                         plugin:saveSetting("underline_density_value", value)
                                         plugin:refreshDocumentStyles()
                                         plugin:refreshGlosses(true)
+                                        -- 同上：菜单不关，但「自定义（N px）」要手动刷新
+                                        if menu and menu.updateItems then menu:updateItems() end
                                     end,
                                 })
                             end,
@@ -747,10 +752,6 @@ function UI.underline_style_menu_item(plugin)
                     end
                     return options
                 end)(),
-            })
-            table.insert(items, {
-                text = _("说明：密度只对虚线和波浪线生效；数值越小越密（虚线更碎、波浪更窄）。\n自定义档以像素为单位，可填 2~24"),
-                enabled_func = function() return false end,
             })
             return items
         end)(),
@@ -822,7 +823,7 @@ function UI.build_menu(plugin)
     table.insert(menu, {
         text_func = function()
             local running = plugin.prefetch ~= nil and plugin.prefetch:is_running()
-            return running and _("翻译生词（联网）：进行中…") or _("翻译生词（联网）")
+            return running and _("翻译生词设置：进行中…") or _("翻译生词设置")
         end,
         sub_item_table_func = function()
             return UI.build_prefetch_menu(plugin)
@@ -834,10 +835,8 @@ function UI.build_menu(plugin)
 
     table.insert(menu, UI.about_menu(plugin))
 
-    table.insert(menu, {
-        text_func = function() return _("状态：") .. plugin:status_text() end,
-        enabled_func = function() return false end,
-    })
+    -- 状态行不再进菜单（信息在「词汇量」「开始转换」里都能看到，多一行反而吵）。
+    -- plugin:status_text() 保留，兜底菜单 / 排查时还能用。
 
     return menu
 end
@@ -975,15 +974,12 @@ function UI.about_menu(plugin)
             text_func = function()
                 return _("版本：") .. tostring(plugin.VERSION or _("未知"))
             end,
-            enabled_func = function() return false end,
         },
         {
             text = _("作者：GangYe293"),
-            enabled_func = function() return false end,
         },
         {
-            text = "github.com/GangYe293/wordgloss.koplugin",
-            enabled_func = function() return false end,
+            text = _("小红书ID：老王的生活指南"),
         },
         {
             text_func = function()
@@ -997,7 +993,7 @@ function UI.about_menu(plugin)
             callback = function() UI.check_update(plugin) end,
         },
         {
-            text = _("每天自动检查一次（只提醒，不自动安装）"),
+            text = _("每天自动检查一次"),
             checked_func = function()
                 return updater ~= nil and updater:get_auto_check() == true
             end,
@@ -1012,11 +1008,6 @@ function UI.about_menu(plugin)
                     and _("已开启：每天第一次打开书时检查一次更新")
                     or _("已关闭：只在手动点「检查更新」时联网"), 3)
             end,
-        },
-        {
-            text = _("说明：更新包来自 GitHub Release，安装前会比对 SHA-256；\n"
-                  .. "旧版本会先备份，新版本加载成功后才删备份。"),
-            enabled_func = function() return false end,
         },
     }
     return {
@@ -1199,10 +1190,6 @@ function UI.build_prefetch_menu(plugin)
             if prefetch then prefetch:request_cancel() end
             UI.showInfo(_("正在停止翻译…已翻译部分会保留"))
         end,
-    })
-    table.insert(items, {
-        text = _("说明：翻译是联网动作，只发送生词本身，不发送正文"),
-        enabled_func = function() return false end,
     })
     table.insert(items, {
         text = _("阅读时自动补翻译生词（默认关，会自己联网）"),

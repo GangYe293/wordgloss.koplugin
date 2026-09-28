@@ -7,11 +7,11 @@ WordGloss annotates difficult words with a short Chinese meaning printed directl
 book by a single byte**. No `<ruby>` tags are injected, no XHTML is rewritten; the glosses
 exist only inside the plugin's own cache and paint layer.
 
-Current version: **1.6.0** (matches `_meta.lua`).
+Current version: **1.7.0** (matches `_meta.lua`).
 
 **[English](README.md) | [简体中文](README.zh-CN.md)**
 
-![version](https://img.shields.io/badge/version-1.6.0-blue)
+![version](https://img.shields.io/badge/version-1.7.0-blue)
 ![platform](https://img.shields.io/badge/platform-KOReader-green)
 ![license](https://img.shields.io/badge/license-GPL--3.0-orange)
 
@@ -75,8 +75,8 @@ Current version: **1.6.0** (matches `_meta.lua`).
 
 ## Installation
 
-1. Download `wordgloss-1.6.0.zip` (full package, includes the offline dictionary) or
-   `wordgloss-1.6.0-code.zip` (code only — enough if the dictionary is already installed);
+1. Download `wordgloss-1.7.0.zip` (full package, includes the offline dictionary) or
+   `wordgloss-1.7.0-code.zip` (code only — enough if the dictionary is already installed);
    both are attached to the release.
 2. Extract / copy it into KOReader's `plugins/` directory. The final layout **must** be:
 
@@ -137,18 +137,17 @@ anything on book open — you switch it on manually, once:
    **Show glossed words** displays it right away — no need to start the conversion again.
    Only when the cache is completely empty does it ask you to start one first.
 
-Top level has just eight entries; every option lives inside one of them:
+Top level has just seven entries; every option lives inside one of them:
 
 | Menu item | Description |
 | --- | --- |
 | **Start glossing** | Parent group. Contains: the **Start glossing / Stop glossing** switch (checked = conversion is active) and **Show glossed words** (show / hide the result). |
-| **Vocabulary size** | Beginner 1,500 / Intermediate 3,000 / Advanced 5,000, or a custom frequency threshold. |
+| **Vocabulary size** | Beginner 1,500 / Intermediate 3,000 / Advanced 5,000, or a custom threshold. |
 | **Gloss settings** | Everything about the gloss text. |
 | **Underline settings** | Everything about the line under the word. |
-| **Translate words (online)** | **Gloss source** (`Local first` / `Local only` / `Online only`), then translate current chapter / translate whole book (re-translate all) / show progress / stop, plus the "auto-translate while reading" toggle (off by default). |
+| **Translate settings** | **Gloss source** (`Local first` / `Local only` / `Online only`), then translate current chapter / translate whole book (re-translate all) / show progress / stop, plus the "auto-translate while reading" toggle (off by default). |
 | **Clear gloss data** | Maintenance: `Clear this book's gloss data` / `Clear all cached glosses` / **`Backfill part of speech from the local dictionary`** (offline). |
-| **About** | Version, author, `Check for updates` (below) and the daily auto-check toggle. |
-| **Status** | Whether glosses are shown, the vocabulary level, how many glosses are cached, and the current gloss source. |
+| **About** | Version, author, Xiaohongshu ID, `Check for updates` (below), and the daily auto-check toggle. |
 
 ### Updating the plugin
 
@@ -341,6 +340,22 @@ node runlua.js <tests/wordgloss> <tests/wordgloss>/dump_menu.lua
 
 ## Changelog
 
+- **1.7.0** — **Menu and message cleanup.** Removed every "Note: …" line from the UI
+  (start glossing, gloss style, gloss font, line density, part of speech, translate menu,
+  update dialog — 7 in total), so menus list options only. In `About`, version and author
+  are no longer greyed out, the GitHub URL is gone, and a Xiaohongshu ID line was added;
+  the `Status:` line at the bottom of the main menu was dropped (8 → 7 top-level entries).
+  Renamed: `Translate words (online)` → **Translate settings**, the vocabulary
+  `Custom threshold` → **Custom**, and the daily update check lost its "(reminder only,
+  never installs)" suffix. **Editing a setting no longer drops you back to the reader**:
+  gloss font size, per-page limit, gloss length limit, gloss offset, underline offset,
+  underline thickness and the font picker all keep the menu open and refresh their own
+  label (the custom threshold and custom density pickers do too). Action items
+  (translate, clear, check for updates) still close the menu as before. **Network
+  failures are now reported in Chinese**: DNS, timeout and refused-connection errors no
+  longer leak raw English strings such as `temporary failure in name resolution` — they
+  show a single "网络连接失败，请检查网络" message. Real HTTP status codes are still
+  shown as-is (for example "下载失败（HTTP 500）").
 - **1.6.0** — **the plugin can update itself.** New `About` menu: shows the version and the
   author, and `Check for updates` asks GitHub Releases once (falling back to `gh-proxy` mirrors
   when GitHub is unreachable), offering **code only** or the **full package** (with the offline

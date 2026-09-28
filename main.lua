@@ -35,7 +35,7 @@ local wordgloss = WidgetContainer:extend{
 }
 
 -- 与 _meta.lua 里的 version 保持一致：菜单「关于」显示它，更新器拿它比大小。
-wordgloss.VERSION = "1.6.0"
+wordgloss.VERSION = "1.7.0"
 
 local SETTING_PREFIX = "wordgloss_"
 local AUTO_PREFETCH_COOLDOWN = 30   -- 自动预取的两次尝试之间至少间隔多少秒
@@ -953,7 +953,8 @@ function wordgloss:backfill_pos()
 end
 
 -- 状态行：一眼看出"有没有开始、用哪一档词汇量、攒了多少释义"。
--- 还没开始时直接把入口写出来，省得用户找菜单。
+-- 1.6.1 起不再出现在主菜单里（信息在「开始转换」「词汇量」里都能看到），
+-- 函数留着给兜底菜单和排查用。
 function wordgloss:status_text()
     if self._init_error then
         return T(_("初始化异常：%1"), self._init_error)
