@@ -1218,6 +1218,15 @@ function UI.about_menu(plugin)
             callback = function() UI.check_update(plugin) end,
         },
         {
+            text_func = function()
+                if plugin.hasLocalLexicon and not plugin:hasLocalLexicon() then
+                    return _("重装离线词典（当前缺失，翻译会失败）")
+                end
+                return _("重装离线词典")
+            end,
+            callback = function() UI.reinstall_data(plugin) end,
+        },
+        {
             text = _("每天自动检查一次"),
             checked_func = function()
                 return updater ~= nil and updater:get_auto_check() == true
@@ -1239,6 +1248,44 @@ function UI.about_menu(plugin)
         text = _("关于"),
         sub_item_table = items,
     }
+end
+
+--[[--
+重装离线词典（词频包 + 释义包）。
+
+「只更新代码」那个包里不含 data/，而更新是整目录换名激活的——一旦丢过一次，
+就再也没有机会自己长回来，症状是翻译整本书必然失败（"词频包未能加载"）。
+这是唯一的自助修复入口：不管当前版本号是多少，直接拉最新的完整包覆盖装上，
+顺便把代码也更到最新。
+]]
+function UI.reinstall_data(plugin)
+    local updater = plugin.updater
+    if not updater then
+        UI.showInfo(_("更新组件未就绪，重启 KOReader 后再试"), 3)
+        return
+    end
+    UI.showInfo(_("正在检查可用的安装包…"), 2)
+    local release, err
+    local ok, wrap_err = Trapper:wrap(function()
+        release, err = updater:fetch()
+    end)
+    if not ok then
+        UI.showInfo(_("检查安装包失败：") .. tostring(wrap_err), 4)
+        return
+    end
+    if not release then
+        UI.showInfo(_("检查安装包失败：") .. tostring(err or _("网络不可用")), 4)
+        return
+    end
+    if not release.assets or not release.assets.full then
+        UI.showInfo(_("这个版本没有可用的完整包"), 4)
+        return
+    end
+    UI.confirm({
+        title = _("重装离线词典：下载最新的完整包装上？\n"
+                 .. "约 3 MB，需要有网络；已翻译的释义缓存不会丢。"),
+        confirm_text = _("重装"),
+    }, function() UI.install_update(plugin, release, "full") end)
 end
 
 -- 查一次更新。silent = 自动检查（没有更新就不吭声）。

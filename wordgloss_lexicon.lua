@@ -109,6 +109,9 @@ function Lexicon:new(plugin_path)
         backend_open = nil,   -- 可注入（测试用）
         cache = {},           -- word -> {rank, base} | false
         closed = false,
+        -- data/ 不在时每个词都会重试一次 sqlite open 并打一条 warn：
+        -- 一页几百个词 = 几百条日志 + 几百次无谓的开库尝试。失败记住就够了。
+        open_failed = false,
     }
     setmetatable(o, self)
     self.__index = self
@@ -126,10 +129,12 @@ end
 
 function Lexicon:open()
     if self.db then return self.db end
+    if self.open_failed then return nil end
     if not self.backend_open then
         local ok, SQ3 = pcall(require, "lua-ljsqlite3/init")
         if not ok or not SQ3 then
             logger.warn("wordgloss: sqlite binding unavailable")
+            self.open_failed = true
             return nil
         end
         self.backend_open = function(path)
@@ -140,9 +145,25 @@ function Lexicon:open()
     end
     self.db = self.backend_open(self:pack_path())
     if not self.db then
+        -- 只报一次：在此之前这行日志会按"页面上的每个词"刷屏（10 分钟上千条）。
+        self.open_failed = true
         logger.warn("wordgloss: language pack not readable:", self:pack_path())
     end
     return self.db
+end
+
+--[[--
+忘了上一次的探测结果，下次访问时重新去读文件。
+
+在线更新补回 data/（「重装离线词典」）之后必须调一次，否则这份实例会
+一直坚持"词频包不在"，哪怕文件已经被装回来了。
+]]
+function Lexicon:reset()
+    if self.db and self.db.close then pcall(function() self.db:close() end) end
+    self.db = nil
+    self.open_failed = false
+    self.closed = false
+    self.cache = {}
 end
 
 function Lexicon:close()
@@ -163,7 +184,11 @@ function Lexicon:row(word)
         return cached.rank, cached.base
     end
     local db = self:open()
-    if not db then return nil, nil end
+    if not db then
+        -- 数据包不可用（缺失 / 不可读）：记成"这个词查不到"，别每个词都去试一遍。
+        self.cache[word] = false
+        return nil, nil
+    end
     local ok, stmt = pcall(function() return db:prepare("select rank, base from lex where word = ?") end)
     if not ok or not stmt then
         self.cache[word] = false

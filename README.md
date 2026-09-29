@@ -7,11 +7,11 @@ WordGloss annotates difficult words with a short Chinese meaning printed directl
 book by a single byte**. No `<ruby>` tags are injected, no XHTML is rewritten; the glosses
 exist only inside the plugin's own cache and paint layer.
 
-Current version: **1.8.7** (matches `_meta.lua`).
+Current version: **1.8.8** (matches `_meta.lua`).
 
 **[English](README.md) | [简体中文](README.zh-CN.md)**
 
-![version](https://img.shields.io/badge/version-1.8.7-blue)
+![version](https://img.shields.io/badge/version-1.8.8-blue)
 ![platform](https://img.shields.io/badge/platform-KOReader-green)
 ![license](https://img.shields.io/badge/license-GPL--3.0-orange)
 
@@ -76,8 +76,8 @@ Current version: **1.8.7** (matches `_meta.lua`).
 
 ## Installation
 
-1. Download `wordgloss-1.8.7.zip` (full package, includes the offline dictionary) or
-   `wordgloss-1.8.7-code.zip` (code only — enough if the dictionary is already installed);
+1. Download `wordgloss-1.8.8.zip` (full package, includes the offline dictionary) or
+   `wordgloss-1.8.8-code.zip` (code only — enough if the dictionary is already installed);
    both are attached to the release.
 2. Extract / copy it into KOReader's `plugins/` directory. The final layout **must** be:
 
@@ -148,7 +148,7 @@ Top level has just seven entries; every option lives inside one of them:
 | **Underline settings** | Everything about the line under the word. |
 | **Translate settings** | **Network settings** (pick the online engine and its key), then **Gloss source** (`Local first` / `Local only` / `Online only`), then translate current chapter / translate whole book (re-translate all), plus the "auto-translate while reading" toggle (needs network; off by default). **Show progress** and **Stop translation** only appear **while a background job is running** — they take no space otherwise; once you dismiss the progress window while a whole-book translation runs, this is where you find the bar again or call the job off. |
 | **Clear gloss data** | Maintenance: `Clear this book's gloss data` / `Clear all cached glosses` / **`Backfill part of speech from the local dictionary`** (offline). |
-| **About** | Version, author, Xiaohongshu ID, `Check for updates` (below), and the daily auto-check toggle. |
+| **About** | Version, author, Xiaohongshu ID, `Check for updates` (below), `Reinstall offline dictionary` (below), and the daily auto-check toggle. |
 
 ### Updating the plugin
 
@@ -174,6 +174,18 @@ Top level has just seven entries; every option lives inside one of them:
 
 "Check once a day" is off by default. When enabled it asks once per day in the background and
 **only shows a reminder** — it never downloads on its own, so reading is never interrupted.
+
+### When the offline dictionary is gone
+
+The two packs inside `data/` (word frequency + offline glosses) only ship in the **full
+package**. Missing either one makes whole-book translation fail outright ("word-frequency pack
+is missing"), because deciding what counts as an unknown word is entirely its job.
+
+Self-repair: `About → Reinstall offline dictionary`. It ignores the current version number and
+pulls the latest **full package** (~3 MB); your already-translated gloss cache is untouched.
+When a pack is missing that row relabels itself "…(missing — translation will fail)", and
+*Check for updates* quietly switches to the full package too instead of offering a code-only
+install that would leave you exactly as broken.
 
 *Gloss settings* → style, font, font size, per-page limit, length and offsets:
 
@@ -345,6 +357,20 @@ node runlua.js <tests/wordgloss> <tests/wordgloss>/dump_menu.lua
 
 ## Changelog
 
+- **1.8.8** — **What really broke "translate" after clearing the gloss cache, plus a way to
+  repair the data packs yourself.** ① Once `data/` is lost there was no way back (1.8.7's
+  inheritance can only copy from the *previous* version, which is equally broke), so **a local
+  dictionary that isn't complete now forces the full package** instead of code-only, and
+  `About` gained **`Reinstall offline dictionary`** — it ignores version numbers and pulls the
+  latest full package over whatever is installed; when a pack is missing the row relabels itself
+  "(missing — translation will fail)". ② When the frequency pack could not be opened,
+  `Lexicon:open` retried the sqlite open **once per word** and logged a warning each time —
+  hundreds of lines per page. It now remembers the failure, caches misses, and gained
+  `Lexicon:reset()` so a repaired `data/` gets recognised. ③ The translation failure message now
+  points at the fix instead of a filename: "frequency pack is missing — get the full package via
+  About → Reinstall offline dictionary". ④ Also fixed a missing `local` on `missing` in
+  `wordgloss_page.lua`: leaked globally, one word without a gloss made every later word count as
+  pending across pages.
 - **1.8.7** — **Fixed "translate whole book" breaking after a code-only online update.** Two
   bugs stacked up: ① updating swaps the whole directory, and `data/` (the frequency pack **and**
   the gloss pack) is not part of a code-only release — so once the old directory is renamed to

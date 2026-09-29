@@ -157,6 +157,44 @@ function Updater.pick_asset(release, kind)
     return release.assets[kind] or release.assets.code or release.assets.full
 end
 
+-- 插件目录里必须存在的离线数据包。缺任何一个：词频包没了 judge 不出生词，
+-- 释义包没了离线查不出中文，两种情况下都不能走"只更新代码"。
+Updater.PACKS = {
+    "wordgloss_en.sqlite3",        -- 词频包（生词判定）
+    "wordgloss_gloss_en.sqlite3",  -- 离线释义包
+}
+
+-- 探测一个文件在不在。io 在个别运行环境（含离线测试）里不可用，
+-- 那就退到 lfs；两者都不可用时返回 true——"探测不到"不能当成"缺失"，
+-- 否则每次更新都会被强行推到 3 MB 的完整包上。
+function Updater:_file_exists(path)
+    if self.file_check then return self.file_check(path) == true end
+    if io and io.open then
+        local ok, file = pcall(io.open, path, "rb")
+        if ok and file then
+            pcall(function() file:close() end)
+            return true
+        end
+        return false
+    end
+    local ok_lfs, lfs = pcall(require, "libs/libkoreader-lfs")
+    if ok_lfs and lfs and lfs.attributes then
+        return lfs.attributes(path, "mode") ~= nil
+    end
+    return true
+end
+
+-- plugin_dir 下的离线数据包是否齐全。更新前问一次来决定要不要强制用完整包。
+function Updater:data_ready()
+    if type(self.plugin_dir) ~= "string" or self.plugin_dir == "" then return true end
+    for _, name in ipairs(Updater.PACKS) do
+        if not self:_file_exists(self.plugin_dir .. "/data/" .. name) then
+            return false
+        end
+    end
+    return true
+end
+
 ------------------------------------------------------------------------
 -- 文件小工具（都要能失败得体面）
 ------------------------------------------------------------------------
@@ -260,6 +298,7 @@ function Updater:new(options)
         verify = options.verify,
         size_of = options.size_of,
         make_path = options.make_path,
+        file_check = options.file_check,
         prefer_proxy = options.prefer_proxy == true,
         now = options.now,
     }
@@ -613,7 +652,15 @@ function Updater:install(release, opts)
     if not self.plugin_dir or self.plugin_dir == "" then
         return nil, _("拿不到插件目录，无法更新")
     end
-    local asset = Updater.pick_asset(release, opts.kind)
+    local wanted = opts.kind
+    -- 两个离线数据包（词频包 + 释义包）任何一个不在，"只更新代码"装完依旧没有
+    -- 词典：翻译整本书会直接失败，而那时上一版的备份已经被清掉了。既然有完整包
+    -- 可用，就别把用户引到一个装完就用不了的选项上。
+    if Updater.pick_asset(release, "full") and not self:data_ready() then
+        logger.warn("wordgloss: 本地词典不完整，改用完整包更新")
+        wanted = "full"
+    end
+    local asset = Updater.pick_asset(release, wanted)
     if not asset then return nil, _("这个版本没有可下载的安装包") end
     local on_progress = opts.on_progress
 
@@ -714,14 +761,17 @@ end
 ]]
 function Updater:_inherit_data(backup_dir)
     if not self.plugin_dir or self.plugin_dir == "" then return false end
-    local old = backup_dir .. "/data"
     local new = self.plugin_dir .. "/data"
+    -- 新包自带 data/（完整包）就没什么要继承的
+    if self:data_ready() then return false end
+    local old = backup_dir .. "/data"
     if os.rename(old, new) then
         logger.info("wordgloss: 从上个版本继承了 data/：", new)
         return true
     end
-    -- 新包自己带 data/（完整包）就没什么要继承的
-    if os.rename(new, new) == true then return false end
+    -- 走到这里说明装完还是没有词典：翻译会因为缺词频包直接失败。
+    -- （install() 已经在开装前查过一次，缺失时会强制改下完整包，
+    --  所以正常情况下不该出现这条告警。）
     logger.warn("wordgloss: 更新后 data/ 缺失，且上个版本也没有可继承的：", new)
     return false
 end

@@ -134,8 +134,8 @@ function Prefetch.run_worker(args, deps)
     -- 词频包是生词判定的数据源：读不到时 classify 会把所有词当成生词，
     -- 导致整本书被过度翻译。这里提前失败并给出清晰信息，而不是默默翻错。
     if deps.lexicon and not deps.lexicon:available() then
-        summary.state, summary.error =
-            "error", _("词频包未能加载（data/wordgloss_en.sqlite3 缺失或不可读）")
+        summary.state, summary.error = "error",
+            _("词频包缺失，没法判断生词：请到「关于 → 重装离线词典」下载完整包")
         write_progress()
         return summary
     end

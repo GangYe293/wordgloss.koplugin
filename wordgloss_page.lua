@@ -137,6 +137,9 @@ function Page.build_glosses(document, page, config)
     for _, candidate in ipairs(candidates) do
         local info = candidate.info
         local key = (info.base and info.base ~= "") and info.base:lower() or info.word
+        -- 必须逐个词重置：以前漏了 local，它会变成全局变量跨页携带，
+        -- 一个词没释义就能让后面所有词都被当成"待翻译"。
+        local missing = false
         local gloss, gloss_pos
         if config.cache then
             gloss, gloss_pos = config.cache:getGloss(key, config.lang)
