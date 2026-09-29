@@ -1264,6 +1264,61 @@ function UI.check_update(plugin, silent)
     UI.offer_update(plugin, release)
 end
 
+-- 更新说明可以长到 1200 字符（`wordgloss_update.lua` 的上限）。整份塞进
+-- ButtonDialog 的标题会把按钮顶出屏幕——1.8.4 的提示就出现过"说明占满整屏、
+-- 看不到安装按钮"。所以标题里只放几行预览，完整内容交给可滚动的「查看说明」。
+UI.NOTES_PREVIEW_LINES = 4
+UI.NOTES_PREVIEW_CHARS = 200
+
+-- 返回 (预览文本, 是否被截断)。行数与字符数任一超限就截断。
+function UI.notes_preview(notes)
+    if type(notes) ~= "string" or notes == "" then return "", false end
+    local text = notes:gsub("\r\n", "\n"):gsub("\r", "\n")
+    text = text:gsub("^%s+", ""):gsub("%s+$", "")
+    if text == "" then return "", false end
+
+    local shown, chars, truncated = {}, 0, false
+    for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+        local cost = #line + 1
+        if #shown >= UI.NOTES_PREVIEW_LINES or chars + cost > UI.NOTES_PREVIEW_CHARS then
+            truncated = true
+            break
+        end
+        shown[#shown + 1] = line
+        chars = chars + cost
+    end
+    if #shown == 0 then
+        -- 第一行本身就超长（Release 说明里偶尔有一整段）
+        return (text:match("^[^\n]*") or ""):sub(1, UI.NOTES_PREVIEW_CHARS) .. "…", true
+    end
+    return table.concat(shown, "\n"), truncated
+end
+
+-- 标题 = "发现新版本 x（当前 y）" + 说明预览。返回 (标题, 是否被截断)。
+function UI.update_offer_title(version, current, notes)
+    local title = T(_("发现新版本 %1（当前 %2）"), version, current)
+    local preview, truncated = UI.notes_preview(notes)
+    if preview ~= "" then
+        title = title .. "\n\n" .. preview .. (truncated and "\n…" or "")
+    end
+    return title, truncated
+end
+
+-- 可滚动的纯文本查看窗（更新说明用）。TextViewer 是 KOReader 自带组件。
+function UI.show_text(title, text)
+    local ok, TextViewer = pcall(require, "ui/widget/textviewer")
+    if not ok or not TextViewer then
+        -- 极老版本没有这个组件时退化成通知，至少别让按钮点了没反应
+        UI.showInfo(text, 6)
+        return
+    end
+    UIManager:show(TextViewer:new{
+        title = title,
+        text = text,
+        justified = true,
+    })
+end
+
 --[[--
 问用户装哪个包。
 
@@ -1318,16 +1373,22 @@ function UI.offer_update(plugin, release)
         end
     end
     buttons[#buttons + 1] = row
+
+    local title, truncated = UI.update_offer_title(release.version,
+        plugin.updater and plugin.updater.current_version or _("未知"), release.notes)
+    if truncated then
+        buttons[#buttons + 1] = {{
+            text = _("查看完整更新说明"),
+            callback = function()
+                UI.show_text(T(_("WordGloss %1 更新说明"), release.version),
+                    release.notes or "")
+            end,
+        }}
+    end
     buttons[#buttons + 1] = {{
         text = _("以后再说"),
         callback = function() UIManager:close(offer) end,
     }}
-
-    local title = T(_("发现新版本 %1（当前 %2）"), release.version,
-        plugin.updater and plugin.updater.current_version or _("未知"))
-    if release.notes and release.notes ~= "" then
-        title = title .. "\n\n" .. release.notes
-    end
 
     offer = ButtonDialog:new{ title = title, buttons = buttons }
     UIManager:show(offer)
