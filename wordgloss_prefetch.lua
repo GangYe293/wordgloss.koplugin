@@ -110,22 +110,11 @@ function Prefetch.run_worker(args, deps)
     }
     local use_local, use_online = source_flags(args.gloss_source)
 
-    -- 词频包是生词判定的数据源：读不到时 classify 会把所有词当成生词，
-    -- 导致整本书被过度翻译。这里提前失败并给出清晰信息，而不是默默翻错。
-    if deps.lexicon and not deps.lexicon:available() then
-        summary.state, summary.error =
-            "error", _("词频包未能加载（data/wordgloss_en.sqlite3 缺失或不可读）")
-        write_progress()
-        return summary
-    else
-        logger.dbg("wordgloss: lexicon available, plugin_path=", tostring(args.plugin_path))
-    end
-
-    local function cancelled()
-        if deps.cancelled then return deps.cancelled() and true or false end
-        return file_exists(args.cancel_path)
-    end
-
+    -- 注意顺序：write_progress / cancelled 必须**定义在第一次调用之前**。
+    -- Lua 的 `local function f()` 是普通的局部变量赋值，写在调用点之后的话，
+    -- 编译器会把调用当成全局查找 → 运行时 nil → "attempt to call global
+    -- 'write_progress' (a nil value)"。词频包缺失那条分支就踩过这个坑：
+    -- 本该给用户一句友好的错误信息，结果整个 worker 直接崩掉。
     local function write_progress()
         if not args.progress_path then return end
         local payload = string.format("%s|%d|%d|%d|%d|%d",
@@ -136,6 +125,21 @@ function Prefetch.run_worker(args, deps)
             logger.warn("wordgloss: failed to write progress file:", args.progress_path)
         end
     end
+
+    local function cancelled()
+        if deps.cancelled then return deps.cancelled() and true or false end
+        return file_exists(args.cancel_path)
+    end
+
+    -- 词频包是生词判定的数据源：读不到时 classify 会把所有词当成生词，
+    -- 导致整本书被过度翻译。这里提前失败并给出清晰信息，而不是默默翻错。
+    if deps.lexicon and not deps.lexicon:available() then
+        summary.state, summary.error =
+            "error", _("词频包未能加载（data/wordgloss_en.sqlite3 缺失或不可读）")
+        write_progress()
+        return summary
+    end
+    logger.dbg("wordgloss: lexicon available, plugin_path=", tostring(args.plugin_path))
 
     -- 1. 解包 + 结构解析
     local work_dir = cache:getBookCacheRoot() .. "/unpack_" .. tostring(os.time())

@@ -694,9 +694,36 @@ function Updater:install(release, opts)
         remove_tree(self.work_dir)
         return nil, _("无法启用新版本")
     end
+    -- 5b) data/（词频包 + 离线释义包）不在「只更新代码」那个包里，
+    --     而换名是整个目录一起换走的，不继承就等于装完立刻没有词典：
+    --     翻译整本书会因为缺词频包失败，而此时上一次的备份已经被
+    --     cleanup_backup() 删掉了，退不回去。full 包自带 data/，
+    --     rename 会失败（目标已存在），正好跳过。
+    self:_inherit_data(backup)
     remove_tree(self.work_dir)
     report(on_progress, "done", 100)
     return true
+end
+
+--[[--
+把上个版本的 `data/` 搬到新版本里。
+
+用 rename 而不是复制：data/ 有 5 MB 多，复制既慢又要临时占一份空间；
+同分区 rename 是瞬时的原子操作。旧版本本来就没有 data/ 时 rename 会失败，
+那种情况交给下面的告警去说。
+]]
+function Updater:_inherit_data(backup_dir)
+    if not self.plugin_dir or self.plugin_dir == "" then return false end
+    local old = backup_dir .. "/data"
+    local new = self.plugin_dir .. "/data"
+    if os.rename(old, new) then
+        logger.info("wordgloss: 从上个版本继承了 data/：", new)
+        return true
+    end
+    -- 新包自己带 data/（完整包）就没什么要继承的
+    if os.rename(new, new) == true then return false end
+    logger.warn("wordgloss: 更新后 data/ 缺失，且上个版本也没有可继承的：", new)
+    return false
 end
 
 --[[--

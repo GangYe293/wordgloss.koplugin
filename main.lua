@@ -35,7 +35,7 @@ local wordgloss = WidgetContainer:extend{
 }
 
 -- 与 _meta.lua 里的 version 保持一致：菜单「关于」显示它，更新器拿它比大小。
-wordgloss.VERSION = "1.8.6"
+wordgloss.VERSION = "1.8.7"
 
 local SETTING_PREFIX = "wordgloss_"
 local AUTO_PREFETCH_COOLDOWN = 30   -- 自动预取的两次尝试之间至少间隔多少秒
@@ -251,6 +251,18 @@ end
 function wordgloss:hasLocalDict()
     if not self.dict then return false end
     local ok, ready = pcall(function() return self.dict:available() end)
+    return ok and ready == true
+end
+
+--[[--
+词频包有没有随插件装上。
+
+翻译整本书的第一步就是它（生词判定全靠这份数据），缺了整本书都翻不动，
+所以推荐装哪个包时要跟释义包一起问，不能只看 hasLocalDict()。
+]]
+function wordgloss:hasLocalLexicon()
+    if not self.lexicon then return false end
+    local ok, ready = pcall(function() return self.lexicon:available() end)
     return ok and ready == true
 end
 

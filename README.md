@@ -7,11 +7,11 @@ WordGloss annotates difficult words with a short Chinese meaning printed directl
 book by a single byte**. No `<ruby>` tags are injected, no XHTML is rewritten; the glosses
 exist only inside the plugin's own cache and paint layer.
 
-Current version: **1.8.6** (matches `_meta.lua`).
+Current version: **1.8.7** (matches `_meta.lua`).
 
 **[English](README.md) | [简体中文](README.zh-CN.md)**
 
-![version](https://img.shields.io/badge/version-1.8.6-blue)
+![version](https://img.shields.io/badge/version-1.8.7-blue)
 ![platform](https://img.shields.io/badge/platform-KOReader-green)
 ![license](https://img.shields.io/badge/license-GPL--3.0-orange)
 
@@ -76,8 +76,8 @@ Current version: **1.8.6** (matches `_meta.lua`).
 
 ## Installation
 
-1. Download `wordgloss-1.8.6.zip` (full package, includes the offline dictionary) or
-   `wordgloss-1.8.6-code.zip` (code only — enough if the dictionary is already installed);
+1. Download `wordgloss-1.8.7.zip` (full package, includes the offline dictionary) or
+   `wordgloss-1.8.7-code.zip` (code only — enough if the dictionary is already installed);
    both are attached to the release.
 2. Extract / copy it into KOReader's `plugins/` directory. The final layout **must** be:
 
@@ -156,9 +156,11 @@ Top level has just seven entries; every option lives inside one of them:
 
 1. Asks GitHub Releases once, falling back to `gh-proxy` mirrors when GitHub is unreachable.
 2. Shows the new version and its release notes, and lets you pick:
-   - **Code only** (a few dozen KB) — use this when the offline dictionary is already there;
-   - **Full package** (with the dictionary, ~3 MB) — when the dictionary is missing or you
-     want a fresh copy.
+   - **Code only** (a few dozen KB) — when both offline data packs are already installed (the
+     existing `data/` folder is **renamed along into the new version**, so the swap never
+     leaves you without them);
+   - **Full package** (with the dictionary, ~3 MB) — when either pack is missing or you want a
+     fresh copy.
    Long notes are previewed in a few lines, with the rest behind a scrollable *Show full
    release notes* button — the install buttons are never pushed off screen.
 3. Checks the byte size against the one the Release API reported (catches truncated downloads
@@ -343,6 +345,18 @@ node runlua.js <tests/wordgloss> <tests/wordgloss>/dump_menu.lua
 
 ## Changelog
 
+- **1.8.7** — **Fixed "translate whole book" breaking after a code-only online update.** Two
+  bugs stacked up: ① updating swaps the whole directory, and `data/` (the frequency pack **and**
+  the gloss pack) is not part of a code-only release — so once the old directory is renamed to
+  `.backup` both packs vanish, and since the backup is deleted after the new version starts
+  successfully there is no way back. A code-only install now **renames the previous `data/`
+  into place** (rename, no extra disk needed); full packages carry their own `data/` and skip
+  this. ② When the packs were missing, the prefetch worker was supposed to return "the frequency
+  pack could not be loaded", but `write_progress` was declared *after* its first call site, so
+  Lua resolved it as a global → `attempt to call global 'write_progress' (a nil value)` and the
+  worker crashed. The declarations now come first. Also: picking which package to recommend used
+  to check only the gloss pack — it now **checks the frequency pack too**, falling back to the
+  full package when that one is missing.
 - **1.8.6** — **Background translation progress is reachable again.** ① *Show progress* and
   *Stop translation* no longer sit greyed out in the menu — they are **only inserted while a
   background job is actually running**, so they take no space otherwise. ② *Show progress*

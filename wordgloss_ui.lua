@@ -1346,7 +1346,10 @@ function UI.offer_update(plugin, release)
         UI.showInfo(_("这个版本没有可下载的安装包"), 3)
         return
     end
-    local preferred = (plugin:hasLocalDict() and assets.code) and "code"
+    -- 两个离线数据包（词频包 + 释义包）都在，才可以只更新代码；
+    -- 少一个都得走完整包，否则装完翻译整本书会因为缺词频包直接失败。
+    local has_data = plugin:hasLocalDict() and plugin:hasLocalLexicon()
+    local preferred = (has_data and assets.code) and "code"
         or (assets.full and "full" or kinds[1])
     local function label(kind)
         local asset = assets[kind]
