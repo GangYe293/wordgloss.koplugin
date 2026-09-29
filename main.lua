@@ -35,7 +35,7 @@ local wordgloss = WidgetContainer:extend{
 }
 
 -- 与 _meta.lua 里的 version 保持一致：菜单「关于」显示它，更新器拿它比大小。
-wordgloss.VERSION = "1.8.8"
+wordgloss.VERSION = "1.8.9"
 
 local SETTING_PREFIX = "wordgloss_"
 local AUTO_PREFETCH_COOLDOWN = 30   -- 自动预取的两次尝试之间至少间隔多少秒
@@ -468,6 +468,8 @@ function wordgloss:start_translation(menu)
     self:saveSetting("enabled", true)
     -- 用户主动点上来的意思就是要看注释，顺手把上一次的"隐藏"恢复。
     self:saveSetting("show_glosses", true)
+    -- 清过本书注释数据的，这里也一并解除（"开始转换"等于同意重新显示）。
+    self:markBookRescanned()
     self:applyEnabledState(menu)
     UI.ask_translate_scope(self)
 end
@@ -741,6 +743,13 @@ function wordgloss:refreshGlosses(force)
         UIManager:setDirty(self.ui.view, "ui")
         return
     end
+    -- 本书刚被"清除注释数据"、还没重新翻译：这段时间一页都不画，
+    -- 也不去触发自动补翻译（否则注释立刻又被补回来）。
+    if self:isBookCleared() then
+        self.overlay:clear()
+        UIManager:setDirty(self.ui.view, "ui")
+        return
+    end
     -- 安全时机更新章节备忘：本函数只从 nextTick / UI 回调 / 翻译完成触发，
     -- 都在排版外，这里探测分页是安全的（setStyleSheet 钩子绝不探测，
     -- 只读 lastKnownChapterIndex 的内存值）。
@@ -830,6 +839,7 @@ function wordgloss:start_prefetch_chapter(silent)
     if not self.prefetch then UI.showInfo(_("插件未正常初始化，请重启 KOReader")); return end
     local options = self:prefetch_options(silent)
     if not options.book_id then UI.showInfo(_("没有打开的书")); return end
+    self:markBookRescanned()
     local index = self:getCurrentChapterIndex()
     options.first_index = index
     options.last_index = index
@@ -860,6 +870,7 @@ function wordgloss:start_prefetch_book(force)
     if not self.prefetch then UI.showInfo(_("插件未正常初始化，请重启 KOReader")); return end
     local options = self:prefetch_options(false)
     if not options.book_id then UI.showInfo(_("没有打开的书")); return end
+    self:markBookRescanned()
     options.first_index = 1
     options.last_index = 9999
     options.force = force and true or nil
@@ -930,14 +941,38 @@ end
 -- 维护
 ------------------------------------------------------------------------
 
+--[[--
+本书的注释数据被清掉之后、重新翻译之前，不再画注释。
+
+释义缓存是跨书共享的，清本书数据并不能动它；而刷新注释是"扫当前页 ->
+查释义缓存 -> 有就画"，跟本书的索引状态无关，所以只清 bookstate 的话注释
+一刷新就原样长回来，看上去像没清。这里给本书留一个待重扫的标记：清掉之后
+必须重新翻译（或点「开始转换」）才会再显示，标记落在 bookstate 里，退出书
+再进来也记得。
+]]
+function wordgloss:isBookCleared()
+    local book_id = self:getBookId()
+    if not book_id or not self.cache then return false end
+    return self.cache:getBookState(book_id, "cleared") == "1"
+end
+
+function wordgloss:markBookRescanned()
+    local book_id = self:getBookId()
+    if not book_id or not self.cache then return false end
+    return self.cache:delBookStateKey(book_id, "cleared")
+end
+
 function wordgloss:clear_book_data()
     local book_id = self:getBookId()
     if not book_id or not self:is_usable() then return end
     self.book:reset(book_id)
     self.cache:clearBookState(book_id)
+    -- reset 会清掉整个 bookstate，所以标记要在它之后写。
+    self.cache:setBookState(book_id, "cleared", "1")
+    if self.overlay then self.overlay:clear() end
     self:refreshGlosses(true)
     self:refreshDocumentStyles()
-    UI.showInfo(_("已清除本书注释数据（释义缓存保留）"))
+    UI.showInfo(_("已清除本书注释数据（释义缓存保留）。重新翻译后会再显示。"), 3)
 end
 
 function wordgloss:clear_gloss_cache()

@@ -7,11 +7,11 @@ WordGloss annotates difficult words with a short Chinese meaning printed directl
 book by a single byte**. No `<ruby>` tags are injected, no XHTML is rewritten; the glosses
 exist only inside the plugin's own cache and paint layer.
 
-Current version: **1.8.8** (matches `_meta.lua`).
+Current version: **1.8.9** (matches `_meta.lua`).
 
 **[English](README.md) | [简体中文](README.zh-CN.md)**
 
-![version](https://img.shields.io/badge/version-1.8.8-blue)
+![version](https://img.shields.io/badge/version-1.8.9-blue)
 ![platform](https://img.shields.io/badge/platform-KOReader-green)
 ![license](https://img.shields.io/badge/license-GPL--3.0-orange)
 
@@ -76,8 +76,8 @@ Current version: **1.8.8** (matches `_meta.lua`).
 
 ## Installation
 
-1. Download `wordgloss-1.8.8.zip` (full package, includes the offline dictionary) or
-   `wordgloss-1.8.8-code.zip` (code only — enough if the dictionary is already installed);
+1. Download `wordgloss-1.8.9.zip` (full package, includes the offline dictionary) or
+   `wordgloss-1.8.9-code.zip` (code only — enough if the dictionary is already installed);
    both are attached to the release.
 2. Extract / copy it into KOReader's `plugins/` directory. The final layout **must** be:
 
@@ -146,8 +146,8 @@ Top level has just seven entries; every option lives inside one of them:
 | **Vocabulary size** | Beginner 1,500 / Intermediate 3,000 / Advanced 5,000, or a custom threshold. |
 | **Gloss settings** | Everything about the gloss text. |
 | **Underline settings** | Everything about the line under the word. |
-| **Translate settings** | **Network settings** (pick the online engine and its key), then **Gloss source** (`Local first` / `Local only` / `Online only`), then translate current chapter / translate whole book (re-translate all), plus the "auto-translate while reading" toggle (needs network; off by default). **Show progress** and **Stop translation** only appear **while a background job is running** — they take no space otherwise; once you dismiss the progress window while a whole-book translation runs, this is where you find the bar again or call the job off. |
-| **Clear gloss data** | Maintenance: `Clear this book's gloss data` / `Clear all cached glosses` / **`Backfill part of speech from the local dictionary`** (offline). |
+| **Translate settings** | **Network settings** (pick the online engine and its key), then **Gloss source** (`Local first` / `Local only` / `Online only`), then translate current chapter / `Translate whole book (incremental)` / `Re-translate whole book (overwrite)` — **incremental only fills in words that were never glossed, overwrite re-translates the ones that already are** (under `Local first` that replaces online translations with the dictionary's shorter wording), plus the "auto-translate while reading" toggle (needs network; off by default). **Show progress** and **Stop translation** only appear **while a background job is running** — they take no space otherwise; once you dismiss the progress window while a whole-book translation runs, this is where you find the bar again or call the job off. |
+| **Clear gloss data** | Maintenance: `Clear this book's gloss data` (the book's glosses disappear until you translate again; the shared gloss cache is kept for other books) / `Clear all gloss data` (deletes every translated gloss, all books) / **`Backfill part of speech from the local dictionary`** (offline). |
 | **About** | Version, author, Xiaohongshu ID, `Check for updates` (below), `Reinstall offline dictionary` (below), and the daily auto-check toggle. |
 
 ### Updating the plugin
@@ -357,6 +357,18 @@ node runlua.js <tests/wordgloss> <tests/wordgloss>/dump_menu.lua
 
 ## Changelog
 
+- **1.8.9** — **Two things that looked like they did nothing.** ① `Clear this book's gloss
+  data` left the glosses on screen. The gloss cache is shared across books, so clearing a
+  book's own state cannot touch it, and refreshing is "scan page → look up cache → draw",
+  which never reads the book's index — so the glosses grew right back. Clearing now leaves a
+  "needs re-scan" flag on the book (stored in bookstate, so it survives leaving and reopening
+  the book): glosses disappear right away and only come back after you translate again or hit
+  `Start`. ② Changing the **gloss font** needed leaving and reopening the book: `Overlay`
+  cached the font object without keying it on "face name + size", so a new face or size still
+  returned the old object, and the font menu never re-applied the stylesheet the way the font
+  size menu does. The cache now expires on those parameters, so it takes effect immediately.
+  ③ Menu wording: `Translate whole book (background)` → **(incremental)**, `Re-translate whole
+  book` → **(overwrite)**, `Clear all cached glosses` → **Clear all gloss data**.
 - **1.8.8** — **What really broke "translate" after clearing the gloss cache, plus a way to
   repair the data packs yourself.** ① Once `data/` is lost there was no way back (1.8.7's
   inheritance can only copy from the *previous* version, which is equally broke), so **a local

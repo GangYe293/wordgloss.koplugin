@@ -512,6 +512,9 @@ function UI.font_menu_item(plugin)
                 end,
                 callback = function()
                     plugin:saveSetting("font_face", nil)
+                    -- 字体进了 style_signature，不重排样式表的话屏幕上的注释
+                    -- 还是旧字体（要退出书再进来才变）。
+                    plugin:refreshDocumentStyles()
                     plugin:refreshGlosses(true)
                 end,
             },
@@ -522,6 +525,7 @@ function UI.font_menu_item(plugin)
                     UI.choose_font_file(function(file_path)
                         if not file_path or file_path == "" then return end
                         plugin:saveSetting("font_face", file_path)
+                        plugin:refreshDocumentStyles()
                         plugin:refreshGlosses(true)
                         if menu and menu.updateItems then menu:updateItems() end
                         UI.showInfo(T(_("注释字体：%1"), plugin:fontLabel() or file_path), 3)
@@ -783,7 +787,7 @@ function UI.clear_menu(plugin)
                 end,
             },
             {
-                text = _("清空全部释义缓存"),
+                text = _("清空全部注释数据"),
                 callback = function()
                     UI.confirm({
                         title = _("删除所有已翻译的释义（全部书）？\n下次使用需要重新联网翻译。"),
@@ -1503,11 +1507,11 @@ function UI.build_prefetch_menu(plugin)
         callback = function() plugin:start_prefetch_chapter() end,
     })
     table.insert(items, {
-        text = _("翻译整本书的生词（后台）"),
+        text = _("翻译整本书的生词（增量）"),
         callback = function() plugin:start_prefetch_book() end,
     })
     table.insert(items, {
-        text = _("重新翻译整本"),
+        text = _("重新翻译整本（覆盖已有）"),
         callback = function()
             UI.confirm({
                 title = _("重新翻译整本书的生词，覆盖已有的释义？\n原书不会被修改。"),

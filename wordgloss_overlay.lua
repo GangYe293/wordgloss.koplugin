@@ -190,14 +190,19 @@ function Overlay:resolveFaceName()
     return "cfont"
 end
 
+-- 字体对象按（字体名 + 字号）缓存：任何一项变了都自动失效。
+-- 以前只缓存 _face 本身，改字号/换字体后拿到的还是旧对象，
+-- 注释看起来"没生效"，要把书退出去再进来才对。
 function Overlay:face()
-    if self._face then return self._face end
     local name = self:resolveFaceName()
+    local key = tostring(name) .. "|" .. tostring(self.font_size)
+    if self._face and self._face_key == key then return self._face end
     local ok, face = pcall(Font.getFace, Font, name, self.font_size)
     if not ok or not face then
         ok, face = pcall(Font.getFace, Font, "cfont", self.font_size)
     end
     if not ok or not face then return nil end
+    self._face_key = key
     self._face = face
     return face
 end
