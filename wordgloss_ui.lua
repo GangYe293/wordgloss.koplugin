@@ -157,6 +157,9 @@ function UI.progress_dialog(title, hooks)
     local original_close = dialog.onCloseWidget
     function dialog:onCloseWidget()
         self._wordgloss_hidden = true
+        -- 窗一关就停掉轮询：不然这条每 0.5 秒读一次进度文件的定时器会一直
+        -- 跑到 KOReader 退出为止。想再看进度，从菜单里重开一个窗即可。
+        if self._wordgloss_stop then pcall(self._wordgloss_stop) end
         if original_close then return original_close(self) end
     end
 
@@ -196,6 +199,13 @@ function UI.progress_dialog(title, hooks)
     local function poll()
         if not active then return end
         local progress = hooks and hooks.progress and hooks.progress() or nil
+        -- worker 收尾时会把 state 写成 done / cancelled / error。见到这个就收工，
+        -- 别让 "已完成" 的进度窗继续空转（也别留一条永远排队的定时器）。
+        if progress and progress.state and progress.state ~= "running" then
+            active = false
+            pcall(function() if dialog.close then dialog:close() end end)
+            return
+        end
         if progress and not dialog._wordgloss_hidden then
             local total = math.max(1, progress.chapters_total or 0)
             local done = progress.chapters_done or 0
@@ -1455,19 +1465,21 @@ function UI.build_prefetch_menu(plugin)
             }, function() plugin:start_prefetch_book(true) end)
         end,
     })
-    table.insert(items, {
-        text = _("查看翻译进度"),
-        enabled_func = function() return is_running() end,
-        callback = function() plugin:show_prefetch_progress() end,
-    })
-    table.insert(items, {
-        text = _("停止翻译"),
-        enabled_func = function() return is_running() end,
-        callback = function()
-            if prefetch then prefetch:request_cancel() end
-            UI.showInfo(_("正在停止翻译…已翻译部分会保留"))
-        end,
-    })
+    -- 「查看翻译进度」「停止翻译」只在后台真的有任务时才出现：
+    -- 平时摆两个点不动的灰项只会把菜单拉长。任务跑起来后重新打开菜单就能看到。
+    if is_running() then
+        table.insert(items, {
+            text = _("查看翻译进度"),
+            callback = function() plugin:show_prefetch_progress() end,
+        })
+        table.insert(items, {
+            text = _("停止翻译"),
+            callback = function()
+                if prefetch then prefetch:request_cancel() end
+                UI.showInfo(_("正在停止翻译…已翻译部分会保留"))
+            end,
+        })
+    end
     table.insert(items, {
         text = _("阅读时自动补翻译生词（需要联网）"),
         checked_func = function()

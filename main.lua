@@ -35,7 +35,7 @@ local wordgloss = WidgetContainer:extend{
 }
 
 -- 与 _meta.lua 里的 version 保持一致：菜单「关于」显示它，更新器拿它比大小。
-wordgloss.VERSION = "1.8.5"
+wordgloss.VERSION = "1.8.6"
 
 local SETTING_PREFIX = "wordgloss_"
 local AUTO_PREFETCH_COOLDOWN = 30   -- 自动预取的两次尝试之间至少间隔多少秒
@@ -872,17 +872,27 @@ function wordgloss:start_prefetch_book(force)
     if not ok and err then UI.showInfo(err) end
 end
 
+--[[--
+手动打开翻译进度窗。
+
+翻译整本时在后台跑、原来的进度窗又被关掉了的情况下，这里是唯一能看到进度的
+地方。所以复用同一个 UI.progress_dialog（0.5 秒轮询一次，每前进 2% 重绘），
+而不是弹一条几秒就没的静态快照；窗里的「停止翻译」同样能中止后台任务。
+]]
 function wordgloss:show_prefetch_progress()
     local book_id = self:getBookId()
     if not book_id or not self.prefetch then return end
-    local progress = self.prefetch:progress(book_id)
-    if not progress then
+    if not self.prefetch:progress(book_id) then
         UI.showInfo(_("还没有翻译记录"))
         return
     end
-    UI.showInfo(T(_("章节 %1/%2，已翻译 %3，无译文 %4"),
-        progress.chapters_done, progress.chapters_total,
-        progress.translated, progress.failed), 4)
+    UI.progress_dialog(_("翻译进度"), {
+        progress = function() return self.prefetch:progress(book_id) end,
+        cancel = function()
+            self.prefetch:request_cancel()
+            return true
+        end,
+    })
 end
 
 ------------------------------------------------------------------------

@@ -7,11 +7,11 @@ WordGloss annotates difficult words with a short Chinese meaning printed directl
 book by a single byte**. No `<ruby>` tags are injected, no XHTML is rewritten; the glosses
 exist only inside the plugin's own cache and paint layer.
 
-Current version: **1.8.5** (matches `_meta.lua`).
+Current version: **1.8.6** (matches `_meta.lua`).
 
 **[English](README.md) | [简体中文](README.zh-CN.md)**
 
-![version](https://img.shields.io/badge/version-1.8.5-blue)
+![version](https://img.shields.io/badge/version-1.8.6-blue)
 ![platform](https://img.shields.io/badge/platform-KOReader-green)
 ![license](https://img.shields.io/badge/license-GPL--3.0-orange)
 
@@ -76,8 +76,8 @@ Current version: **1.8.5** (matches `_meta.lua`).
 
 ## Installation
 
-1. Download `wordgloss-1.8.5.zip` (full package, includes the offline dictionary) or
-   `wordgloss-1.8.5-code.zip` (code only — enough if the dictionary is already installed);
+1. Download `wordgloss-1.8.6.zip` (full package, includes the offline dictionary) or
+   `wordgloss-1.8.6-code.zip` (code only — enough if the dictionary is already installed);
    both are attached to the release.
 2. Extract / copy it into KOReader's `plugins/` directory. The final layout **must** be:
 
@@ -146,7 +146,7 @@ Top level has just seven entries; every option lives inside one of them:
 | **Vocabulary size** | Beginner 1,500 / Intermediate 3,000 / Advanced 5,000, or a custom threshold. |
 | **Gloss settings** | Everything about the gloss text. |
 | **Underline settings** | Everything about the line under the word. |
-| **Translate settings** | **Network settings** (pick the online engine and its key), then **Gloss source** (`Local first` / `Local only` / `Online only`), then translate current chapter / translate whole book (re-translate all) / show progress / stop, plus the "auto-translate while reading" toggle (needs network; off by default). |
+| **Translate settings** | **Network settings** (pick the online engine and its key), then **Gloss source** (`Local first` / `Local only` / `Online only`), then translate current chapter / translate whole book (re-translate all), plus the "auto-translate while reading" toggle (needs network; off by default). **Show progress** and **Stop translation** only appear **while a background job is running** — they take no space otherwise; once you dismiss the progress window while a whole-book translation runs, this is where you find the bar again or call the job off. |
 | **Clear gloss data** | Maintenance: `Clear this book's gloss data` / `Clear all cached glosses` / **`Backfill part of speech from the local dictionary`** (offline). |
 | **About** | Version, author, Xiaohongshu ID, `Check for updates` (below), and the daily auto-check toggle. |
 
@@ -343,6 +343,17 @@ node runlua.js <tests/wordgloss> <tests/wordgloss>/dump_menu.lua
 
 ## Changelog
 
+- **1.8.6** — **Background translation progress is reachable again.** ① *Show progress* and
+  *Stop translation* no longer sit greyed out in the menu — they are **only inserted while a
+  background job is actually running**, so they take no space otherwise. ② *Show progress*
+  used to fire a **text snapshot that vanished after 4 seconds** (chapter x/y, words
+  translated); it now opens the very same **progress-bar window** used during translation:
+  polled every 0.5 s, **repainted only every 2% of progress** (same throttle as before, so it
+  doesn't flicker), and its own *Stop translation* action cancels the background job. ③ Also
+  fixed a timer leak: the old window closed its UI but never stopped polling, leaving a
+  0.5-second **timer that re-read the progress file until KOReader exits**. Now both closing
+  the window and the job finishing (the worker writes state `done` / `cancelled` / `error`)
+  stop the polling and dismiss the window.
 - **1.8.5** — **Fixed the update prompt pushing its buttons off screen.** Release notes can
   be up to 1200 characters long, and the whole thing used to be dumped into the dialog
   title — on a small screen the notes filled the display and the "code only / full package /
