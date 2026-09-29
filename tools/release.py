@@ -43,7 +43,8 @@ PLUGIN_DIR_NAME = "wordgloss.koplugin"
 PACKAGE_BASE = "wordgloss"
 
 # 任何包里都不要的东西
-EXCLUDE_ALWAYS = {".git", "__pycache__", ".backup", ".idea", ".vscode"}
+# .gitignore 只是开发用的，不该出现在用户装到的插件目录里
+EXCLUDE_ALWAYS = {".git", "__pycache__", ".backup", ".idea", ".vscode", ".gitignore"}
 EXCLUDE_SUFFIX = {".pyc", ".pyo", ".bak", ".tmp"}
 # 仅代码包额外排除：离线词典（最大的东西）+ 生成脚本
 EXCLUDE_CODE_EXTRA = {"data", "tools"}
