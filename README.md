@@ -7,11 +7,11 @@ WordGloss annotates difficult words with a short Chinese meaning printed directl
 book by a single byte**. No `<ruby>` tags are injected, no XHTML is rewritten; the glosses
 exist only inside the plugin's own cache and paint layer.
 
-Current version: **1.8.10** (matches `_meta.lua`).
+Current version: **1.8.11** (matches `_meta.lua`).
 
 **[English](README.md) | [简体中文](README.zh-CN.md)**
 
-![version](https://img.shields.io/badge/version-1.8.10-blue)
+![version](https://img.shields.io/badge/version-1.8.11-blue)
 ![platform](https://img.shields.io/badge/platform-KOReader-green)
 ![license](https://img.shields.io/badge/license-GPL--3.0-orange)
 
@@ -76,8 +76,8 @@ Current version: **1.8.10** (matches `_meta.lua`).
 
 ## Installation
 
-1. Download `wordgloss-1.8.10.zip` (full package, includes the offline dictionary) or
-   `wordgloss-1.8.10-code.zip` (code only — enough if the dictionary is already installed);
+1. Download `wordgloss-1.8.11.zip` (full package, includes the offline dictionary) or
+   `wordgloss-1.8.11-code.zip` (code only — enough if the dictionary is already installed);
    both are attached to the release.
 2. Extract / copy it into KOReader's `plugins/` directory. The final layout **must** be:
 
@@ -148,7 +148,7 @@ Top level has just seven entries; every option lives inside one of them:
 | **Underline settings** | Everything about the line under the word. |
 | **Translate settings** | **Network settings** (pick the online engine and its key), then **Gloss source** (`Local first` / `Local only` / `Online only`), then translate current chapter / `Translate whole book (incremental)` / `Re-translate whole book (overwrite)` — **incremental only fills in words that were never glossed, overwrite re-translates the ones that already are** (under `Local first` that replaces online translations with the dictionary's shorter wording), plus the "auto-translate while reading" toggle (needs network; off by default). **Show progress** and **Stop translation** only appear **while a background job is running** — they take no space otherwise; once you dismiss the progress window while a whole-book translation runs, this is where you find the bar again or call the job off. |
 | **Clear gloss data** | Maintenance: `Clear this book's gloss data` (the book's glosses disappear until you translate again; the shared gloss cache is kept for other books) / `Clear all gloss data` (deletes every translated gloss, all books) / **`Backfill part of speech from the local dictionary`** (offline). |
-| **About** | The **version / author / Xiaohongshu ID** rows are a radio group: tapping version shows what that release changed, author shows the project URL, Xiaohongshu ID tells you where to leave the author a note. Then `Check for updates` (below), `Reinstall offline dictionary` (below), and the daily auto-check toggle. |
+| **About** | The **version / author / Xiaohongshu ID** rows look like ordinary menu entries but each does something when tapped: version shows what that release changed, author shows the project URL, Xiaohongshu ID tells you where to leave the author a note. Then `Check for updates` (below), `Reinstall offline dictionary` (below), and the daily auto-check toggle. |
 
 ### Updating the plugin
 
@@ -357,15 +357,16 @@ node runlua.js <tests/wordgloss> <tests/wordgloss>/dump_menu.lua
 
 ## Changelog
 
-- **1.8.10** — **The first three rows of `About` are a radio group now, each with its own
-  content.** ① Version / author / Xiaohongshu ID used to be plain text rows, which KOReader
-  treats as ordinary checkboxes — all three could be ticked at once. They are single-select
-  now, and each does something: **version** shows what that release changed (notes ship
-  inside the plugin, no network needed; a version with no entry falls back to the GitHub
-  URL), **author** shows the project URL `github.com/GangYe293/wordgloss.koplugin`,
-  **Xiaohongshu ID** tells you to leave the author a note there. ② New
-  `wordgloss_changelog.lua` holds the built-in notes, and `tools/release.py` checks that the
-  version being released has an entry — with `--execute` it stops if one is missing.
+- **1.8.11** — **The first three rows of `About` now do something when tapped.** ① Version /
+  author / Xiaohongshu ID used to be plain text rows: tapping did nothing, and KOReader
+  treated them as ordinary checkboxes, so all three could be ticked at once. They stay
+  ordinary menu rows (**no checkbox**), the menu stays open after a tap, and each does its
+  own thing: **version** shows what that release changed (notes ship inside the plugin, no
+  network needed; a version with no entry falls back to the GitHub URL), **author** shows the
+  project URL `github.com/GangYe293/wordgloss.koplugin`, **Xiaohongshu ID** tells you to
+  leave the author a note there. ② New `wordgloss_changelog.lua` holds the built-in notes,
+  and `tools/release.py` checks that the version being released has an entry — with
+  `--execute` it stops if one is missing.
 - **1.8.9** — **Two things that looked like they did nothing.** ① `Clear this book's gloss
   data` left the glosses on screen. The gloss cache is shared across books, so clearing a
   book's own state cannot touch it, and refreshing is "scan page → look up cache → draw",

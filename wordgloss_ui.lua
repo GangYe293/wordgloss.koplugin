@@ -1212,33 +1212,30 @@ function UI.show_version_notes(plugin)
     UI.show_text(T(_("版本 %1 更新内容"), version), text)
 end
 
+--[[--
+版本 / 作者 / 小红书ID 是三行普通菜单项：没有勾选框（不给 checked_func），
+点了各弹各的内容，并且用 keep_menu_open 让菜单留在屏幕上（照 weread 插件的做法）。
+
+注意：只有 text 而没有 callback 的菜单项，KOReader 会当成可勾选项，用户能把
+三个一起勾上 —— 所以这三行必须有 callback。
+]]
 function UI.about_menu(plugin)
     local updater = plugin.updater
-    -- 版本 / 作者 / 小红书ID 三项是单选：点谁谁亮，同时各弹各的内容。
-    -- 不加 callback 的话 KOReader 会把它们当普通勾选项，三个能一起勾上。
-    local function selected()
-        return plugin:getSetting("about_selected", "version")
-    end
-    local function radio(key, text_func, on_tap)
+    local function info_row(text, on_tap)
         return {
-            text_func = text_func,
-            checked_func = function() return selected() == key end,
-            radio = true,
-            callback = function()
-                plugin:saveSetting("about_selected", key)
-                on_tap()
-            end,
+            text = text,
+            keep_menu_open = true,
+            callback = on_tap,
         }
     end
     local items = {
-        radio("version", function()
-            return _("版本：") .. tostring(plugin.VERSION or _("未知"))
-        end, function() UI.show_version_notes(plugin) end),
-        radio("author", function() return _("作者：GangYe293") end, function()
+        info_row(_("版本：") .. tostring(plugin.VERSION or _("未知")),
+            function() UI.show_version_notes(plugin) end),
+        info_row(_("作者：GangYe293"), function()
             UI.show_text(_("项目地址"), UI.PROJECT_URL
-                .. "\n\n" .. _("点开浏览器贴这个地址就能看到源码和更新记录。"))
+                .. "\n\n" .. _("源码和更新记录都在这里。"))
         end),
-        radio("xhs", function() return _("小红书ID：老王的生活指南") end, function()
+        info_row(_("小红书ID：老王的生活指南"), function()
             UI.show_text(_("小红书"),
                 _("有问题可以去小红书给作者留言")
                 .. "\n\n" .. _("小红书ID：老王的生活指南"))
