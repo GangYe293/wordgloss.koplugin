@@ -50,6 +50,11 @@ EXCLUDE_CODE_EXTRA = {"data", "tools"}
 
 GITHUB_API = "https://api.github.com"
 
+# 上传安装包（完整包 3 MB 起）比发一个 JSON 慢得多，国内网络下 60 秒经常不够，
+# 超时会让 Release 建好、附件却是空的（v1.8.4 就卡在这）。上传单独给一个宽裕的超时。
+UPLOAD_TIMEOUT = 300
+UPLOAD_RETRIES = 3
+
 
 def log(message=""):
     print(message, flush=True)
@@ -197,7 +202,7 @@ def git_checks(repo_dir, version, branch="main"):
     return problems
 
 
-def github_request(method, url, token, payload=None, headers=None, data=None):
+def github_request(method, url, token, payload=None, headers=None, data=None, timeout=60):
     request_headers = {
         "Authorization": "Bearer " + token,
         "Accept": "application/vnd.github+json",
@@ -213,7 +218,7 @@ def github_request(method, url, token, payload=None, headers=None, data=None):
         body = data
     request = urllib.request.Request(url, data=body, headers=request_headers, method=method)
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             raw = response.read().decode("utf-8", "replace")
             return response.status, (json.loads(raw) if raw else {})
     except urllib.error.HTTPError as err:
@@ -238,29 +243,59 @@ def create_release(repo, version, token, notes, assets):
     status, release = github_request("POST", "%s/repos/%s/releases" % (GITHUB_API, repo),
                                      token, payload)
     if status not in (200, 201):
-        if status == 422:  # 已经存在：接着往里传资产
+        if status == 422:  # 已经存在：接着往里补资产
             status, release = github_request(
                 "GET", "%s/repos/%s/releases/tags/v%s" % (GITHUB_API, repo, version), token)
+            # 说明只在首次创建时生效，补跑时顺手同步成最新的（--notes-file 才有内容）
+            if status in (200, 201) and notes and release.get("body") != notes:
+                patch_status, _ = github_request(
+                    "PATCH", "%s/repos/%s/releases/%s" % (GITHUB_API, repo, release["id"]),
+                    token, {"body": notes})
+                log("  Release 已存在，%s" % ("已更新说明"
+                    if patch_status in (200, 201) else "说明更新失败（不影响上传）"))
         if status not in (200, 201):
             raise SystemExit("创建 Release 失败（HTTP %s）：%s"
                              % (status, release.get("message")))
+    else:
+        log("  已创建 Release %s" % tag_name(version))
+
     upload_url = release["upload_url"].split("{")[0]
+    existing = {asset["name"]: asset["id"] for asset in release.get("assets", [])}
     for path in assets:
         with open(path, "rb") as handle:
             data = handle.read()
-        status, uploaded = github_request_with_name(upload_url, token, path.name, data)
+        status, uploaded = None, {}
+        for attempt in range(1, UPLOAD_RETRIES + 1):
+            status, uploaded = github_request_with_name(upload_url, token, path.name, data)
+            if status in (200, 201):
+                break
+            message = str(uploaded.get("message", ""))
+            # 同名资产已存在（上一次跑到一半的结果）：删掉再重传
+            if status == 422 and path.name in existing:
+                log("  删除已存在的同名资产 %s" % path.name)
+                github_request("DELETE", "%s/repos/%s/releases/assets/%s"
+                               % (GITHUB_API, repo, existing[path.name]), token)
+                continue
+            log("  上传 %s 第 %d/%d 次失败（HTTP %s）：%s"
+                % (path.name, attempt, UPLOAD_RETRIES, status, message or "超时/网络错误"))
         if status not in (200, 201):
-            raise SystemExit("上传 %s 失败（HTTP %s）：%s"
+            raise SystemExit("上传 %s 失败（HTTP %s）：%s\n可以重跑本命令补传，"
+                             "已建好的 Release 不会被重复创建。"
                              % (path.name, status, uploaded.get("message")))
         log("  已上传 %s（%s）" % (path.name, uploaded.get("name", "")))
     return release.get("html_url", "")
 
 
+def tag_name(version):
+    return "v" + version
+
+
 def github_request_with_name(upload_url, token, name, data):
-    """upload_url 需要 ?name=... 查询参数。"""
+    """upload_url 需要 ?name=... 查询参数。上传用单独的超时（见 UPLOAD_TIMEOUT）。"""
     url = "%s?name=%s" % (upload_url, urllib.parse.quote(name))
     return github_request("POST", url, token, data=data,
-                          headers={"Content-Type": "application/zip"})
+                          headers={"Content-Type": "application/zip"},
+                          timeout=UPLOAD_TIMEOUT)
 
 
 def main():
@@ -324,13 +359,18 @@ def main():
     log("Lua 5.1 语法体检：通过")
 
     if problems:
-        log("\n[!] 发布前的检查没过：")
-        for problem in problems:
-            log("  - " + problem)
-        if not args.execute:
-            log("\n（打包照常进行；要跳过检查加 --skip-checks）")
+        # 唯一的问题是"tag 已存在"= 上一次跑到一半（比如上传超时），
+        # 这次是补传资产，不是错误，别把用户挡在门外。
+        if args.execute and all(p.startswith("远端已经有 tag") for p in problems):
+            log("\n[i] 远端已有 tag %s，按补传模式继续：只补资产与说明，不重复创建" % tag)
         else:
-            raise SystemExit("\n先把上面的事情处理完再 --execute。")
+            log("\n[!] 发布前的检查没过：")
+            for problem in problems:
+                log("  - " + problem)
+            if not args.execute:
+                log("\n（打包照常进行；要跳过检查加 --skip-checks）")
+            else:
+                raise SystemExit("\n先把上面的事情处理完再 --execute。")
 
     # 2) 打包
     log("\n== 打包 ==")
@@ -380,8 +420,12 @@ def main():
     if not args.token:
         raise SystemExit("--execute 需要 GitHub 令牌：--token ghp_xxx 或设置 GITHUB_TOKEN")
 
-    run(["git", "tag", "-a", tag, "-m", "WordGloss %s" % tag], cwd=repo_dir)
-    log("  已打 tag %s" % tag)
+    _, local_tag = run(["git", "tag", "-l", tag], cwd=repo_dir)
+    if local_tag.strip():      # 补跑时 tag 已经在本地了，git tag -a 会报错
+        log("  本地已有 tag %s，跳过创建" % tag)
+    else:
+        run(["git", "tag", "-a", tag, "-m", "WordGloss %s" % tag], cwd=repo_dir)
+        log("  已打 tag %s" % tag)
     run(["git", "push", "origin", args.branch], cwd=repo_dir)
     log("  已推送 %s" % args.branch)
     run(["git", "push", "origin", tag], cwd=repo_dir)
