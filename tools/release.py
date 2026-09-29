@@ -358,11 +358,18 @@ def main():
         raise SystemExit("\n先把 5.3 专有运算符挪进长字符串、改用 load 运行时编译。")
     log("Lua 5.1 语法体检：通过")
 
+    # 这两类问题脚本自己会解决，不算拦路虎：
+    #   - 远端已有 tag：上次跑到一半（上传超时等），这次是补传资产；
+    #   - 有提交没推：下面马上就会 git push。
+    def resumable(problem):
+        return problem.startswith("远端已经有 tag") or "还没推到 GitHub" in problem
+
     if problems:
-        # 唯一的问题是"tag 已存在"= 上一次跑到一半（比如上传超时），
-        # 这次是补传资产，不是错误，别把用户挡在门外。
-        if args.execute and all(p.startswith("远端已经有 tag") for p in problems):
-            log("\n[i] 远端已有 tag %s，按补传模式继续：只补资产与说明，不重复创建" % tag)
+        fatal = [p for p in problems if not resumable(p)]
+        if args.execute and not fatal:
+            for problem in problems:
+                log("[i] %s（脚本会自己处理，继续）" % problem.splitlines()[0])
+            log("[i] 补传模式：只补资产与说明，不重复创建 Release")
         else:
             log("\n[!] 发布前的检查没过：")
             for problem in problems:
