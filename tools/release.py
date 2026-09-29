@@ -359,6 +359,14 @@ def main():
         raise SystemExit("\n先把 5.3 专有运算符挪进长字符串、改用 load 运行时编译。")
     log("Lua 5.1 语法体检：通过")
 
+    # 「关于 → 版本」读的是内置说明，漏了这一版就只剩兜底文案（指去 GitHub）。
+    changelog_text = (plugin_dir / "wordgloss_changelog.lua").read_text(encoding="utf-8")
+    if not re.search(r'version\s*=\s*"%s"' % re.escape(version), changelog_text):
+        hint = "wordgloss_changelog.lua 里没有 %s 的条目，「关于 → 版本」会退化成兜底文案" % version
+        if args.execute:
+            raise SystemExit("[!] " + hint + "\n先把这一版改了什么写进 Changelog.ENTRIES 最前面。")
+        log("[!] " + hint)
+
     # 这两类问题脚本自己会解决，不算拦路虎：
     #   - 远端已有 tag：上次跑到一半（上传超时等），这次是补传资产；
     #   - 有提交没推：下面马上就会 git push。

@@ -12,8 +12,12 @@ local T = require("ffi/util").template
 
 local Lexicon = require("wordgloss_lexicon")
 local Updater = require("wordgloss_update")
+local Changelog = require("wordgloss_changelog")
 
 local UI = {}
+
+-- 项目主页：「关于 → 作者」点开给的就是这个。
+UI.PROJECT_URL = "https://github.com/GangYe293/wordgloss.koplugin"
 
 function UI.showInfo(text, timeout)
     UIManager:show(Notification:new{ text = text, timeout = timeout or 2 })
@@ -1196,20 +1200,49 @@ end
 更新是联网动作，默认不自动跑；勾上「每天检查一次」后才会在打开书时静默问
 一次 GitHub，有新版本也只是提示，装不装由用户点。
 ]]
+--[[--
+当前版本的更新内容（内置，不联网）。没有内置条目时给 GitHub 的地址兜底。
+]]
+function UI.show_version_notes(plugin)
+    local version = tostring(plugin and plugin.VERSION or _("未知"))
+    local text = Changelog.text(version)
+    if not text then
+        text = Changelog.FALLBACK .. "\n\n" .. UI.PROJECT_URL .. "/releases"
+    end
+    UI.show_text(T(_("版本 %1 更新内容"), version), text)
+end
+
 function UI.about_menu(plugin)
     local updater = plugin.updater
-    local items = {
-        {
-            text_func = function()
-                return _("版本：") .. tostring(plugin.VERSION or _("未知"))
+    -- 版本 / 作者 / 小红书ID 三项是单选：点谁谁亮，同时各弹各的内容。
+    -- 不加 callback 的话 KOReader 会把它们当普通勾选项，三个能一起勾上。
+    local function selected()
+        return plugin:getSetting("about_selected", "version")
+    end
+    local function radio(key, text_func, on_tap)
+        return {
+            text_func = text_func,
+            checked_func = function() return selected() == key end,
+            radio = true,
+            callback = function()
+                plugin:saveSetting("about_selected", key)
+                on_tap()
             end,
-        },
-        {
-            text = _("作者：GangYe293"),
-        },
-        {
-            text = _("小红书ID：老王的生活指南"),
-        },
+        }
+    end
+    local items = {
+        radio("version", function()
+            return _("版本：") .. tostring(plugin.VERSION or _("未知"))
+        end, function() UI.show_version_notes(plugin) end),
+        radio("author", function() return _("作者：GangYe293") end, function()
+            UI.show_text(_("项目地址"), UI.PROJECT_URL
+                .. "\n\n" .. _("点开浏览器贴这个地址就能看到源码和更新记录。"))
+        end),
+        radio("xhs", function() return _("小红书ID：老王的生活指南") end, function()
+            UI.show_text(_("小红书"),
+                _("有问题可以去小红书给作者留言")
+                .. "\n\n" .. _("小红书ID：老王的生活指南"))
+        end),
         {
             text_func = function()
                 if not updater then return _("检查更新") end
