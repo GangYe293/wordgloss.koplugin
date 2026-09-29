@@ -7,11 +7,11 @@ WordGloss annotates difficult words with a short Chinese meaning printed directl
 book by a single byte**. No `<ruby>` tags are injected, no XHTML is rewritten; the glosses
 exist only inside the plugin's own cache and paint layer.
 
-Current version: **1.8.3** (matches `_meta.lua`).
+Current version: **1.8.4** (matches `_meta.lua`).
 
 **[English](README.md) | [简体中文](README.zh-CN.md)**
 
-![version](https://img.shields.io/badge/version-1.8.3-blue)
+![version](https://img.shields.io/badge/version-1.8.4-blue)
 ![platform](https://img.shields.io/badge/platform-KOReader-green)
 ![license](https://img.shields.io/badge/license-GPL--3.0-orange)
 
@@ -48,7 +48,8 @@ Current version: **1.8.3** (matches `_meta.lua`).
   restores them offline, without touching the meanings themselves.
 - **Manual and optional background translation.** Translate the current chapter or the whole
   book from the menu (runs in a child process, so you can keep reading and stop at any
-  time). A separate "auto-translate while reading" toggle exists and is **off by default**.
+  time). A separate "auto-translate while reading" toggle (off by default) fills in missing
+  glosses as you turn pages; it needs network access.
 - **Proper-noun filter.** Words that only ever appear capitalized (names, places) are skipped.
 - **Adjustable gloss position.** `Small text above the word` / `Small text below the word`
   (order: word → underline → gloss). *Gloss offset* controls how far the gloss sits from the
@@ -75,8 +76,8 @@ Current version: **1.8.3** (matches `_meta.lua`).
 
 ## Installation
 
-1. Download `wordgloss-1.8.3.zip` (full package, includes the offline dictionary) or
-   `wordgloss-1.8.3-code.zip` (code only — enough if the dictionary is already installed);
+1. Download `wordgloss-1.8.4.zip` (full package, includes the offline dictionary) or
+   `wordgloss-1.8.4-code.zip` (code only — enough if the dictionary is already installed);
    both are attached to the release.
 2. Extract / copy it into KOReader's `plugins/` directory. The final layout **must** be:
 
@@ -145,7 +146,7 @@ Top level has just seven entries; every option lives inside one of them:
 | **Vocabulary size** | Beginner 1,500 / Intermediate 3,000 / Advanced 5,000, or a custom threshold. |
 | **Gloss settings** | Everything about the gloss text. |
 | **Underline settings** | Everything about the line under the word. |
-| **Translate settings** | **Network settings** (pick the online engine and its key), then **Gloss source** (`Local first` / `Local only` / `Online only`), then translate current chapter / translate whole book (re-translate all) / show progress / stop, plus the "auto-translate while reading" toggle (off by default). |
+| **Translate settings** | **Network settings** (pick the online engine and its key), then **Gloss source** (`Local first` / `Local only` / `Online only`), then translate current chapter / translate whole book (re-translate all) / show progress / stop, plus the "auto-translate while reading" toggle (needs network; off by default). |
 | **Clear gloss data** | Maintenance: `Clear this book's gloss data` / `Clear all cached glosses` / **`Backfill part of speech from the local dictionary`** (offline). |
 | **About** | Version, author, Xiaohongshu ID, `Check for updates` (below), and the daily auto-check toggle. |
 
@@ -170,18 +171,18 @@ Top level has just seven entries; every option lives inside one of them:
 "Check once a day" is off by default. When enabled it asks once per day in the background and
 **only shows a reminder** — it never downloads on its own, so reading is never interrupted.
 
-*Gloss settings* → style, font size, per-page limit and font:
+*Gloss settings* → style, font, font size, per-page limit, length and offsets:
 
 | Item | Description |
 | --- | --- |
 | Gloss style | `Small text above the word` (default) or `Small text below the word` (word → underline → gloss). |
+| Gloss font | Default `Follow KOReader` uses KOReader's own CJK font; **Choose font…** opens KOReader's file browser so you can pick a `.ttf` / `.otf` / `.ttc` file yourself (long-press a file name to confirm). Pick a font with Chinese glyphs — otherwise every character renders as a tofu box. |
 | Gloss font size | 8–24 px. |
 | Max glosses per page | When a page has too many hard words, the rarest ones win; `0` = unlimited. |
 | Max gloss length | Truncation limit in characters, so a gloss always fits between two lines. |
-| Show part of speech | Off by default. Prepends `adj.` / `n.` / `vt.` when the gloss has one. Only the **local dictionary** carries part of speech — the online endpoint does not return it — so a page will mix glosses with and without a tag: **shown when available, left empty when not**. |
 | Gloss offset | Distance from word to gloss, −20…40 px. Positive = away from the word (upwards in "above" mode, downwards in "below" mode); negative = hugging it. |
-| Gloss font | Default `Follow KOReader` uses KOReader's own CJK font; **Choose font…** opens KOReader's file browser so you can pick a `.ttf` / `.otf` / `.ttc` file yourself (long-press a file name to confirm). Pick a font with Chinese glyphs — otherwise every character renders as a tofu box. |
-| Skip people / places | On by default; words that only ever appear capitalized are ignored. |
+| Show part of speech | Off by default. Prepends `adj.` / `n.` / `vt.` when the gloss has one. Only the **local dictionary** carries part of speech — the online endpoint does not return it — so a page will mix glosses with and without a tag: **shown when available, left empty when not**. |
+| Skip people / places | On by default; words that only ever appear capitalized (names, places) are ignored. |
 
 *Underline settings* → whether to draw it, what it looks like, and where it sits:
 
@@ -340,6 +341,16 @@ node runlua.js <tests/wordgloss> <tests/wordgloss>/dump_menu.lua
 
 ## Changelog
 
+- **1.8.4** — **Menu wording and ordering pass.** ① In *Gloss settings*, `Gloss font` now
+  sits **above** `Gloss font size` (picking a font and its size next to each other saves a
+  trip). ② Trimmed over-long menu suffixes: "Skip people / places (only-ever-capitalized
+  words)" → **Skip people / places**; "Max glosses per page: N (rarest first)" →
+  **(rarest words first)**; "Re-translate whole book (online, overwrite existing glosses)"
+  → **Re-translate whole book** (the confirmation dialog no longer claims it will
+  "re-connect once" — whether it goes online at all is decided by *Gloss source*, not by
+  this entry). ③ "Auto-translate while reading (off by default,
+  goes online by itself)" → **Auto-translate while reading (needs network)**.
+  Wording and ordering only; no behaviour changes.
 - **1.8.3** — **Fixed the online update crash.** When downloading the update package
   on a slow network (LuaSocket reports `wantread`), `ltn12.sink.file` closes the file
   handle itself at end-of-stream, and our cleanup closed it again — on Lua 5.1 a double

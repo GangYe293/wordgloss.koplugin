@@ -528,6 +528,7 @@ function UI.gloss_settings_menu(plugin)
         text = _("注释设置"),
         sub_item_table = {
             UI.mode_menu_item(plugin),
+            UI.font_menu_item(plugin),
             {
                 text_func = function() return _("注释字号：") .. plugin:getSetting("font_size", 12) end,
                 -- keep_menu_open：调完字号回到这一层菜单，而不是掉回阅读页
@@ -553,7 +554,7 @@ function UI.gloss_settings_menu(plugin)
                 text_func = function()
                     local max_per_page = plugin:getSetting("max_per_page", 6)
                     if max_per_page <= 0 then return _("每页注释上限：不限") end
-                    return T(_("每页注释上限：%1（生僻的优先）"), max_per_page)
+                    return T(_("每页注释上限：%1（生僻字优先）"), max_per_page)
                 end,
                 keep_menu_open = true,
                 callback = function(menu)
@@ -615,9 +616,8 @@ function UI.gloss_settings_menu(plugin)
                     plugin:refreshGlosses(true)
                 end,
             },
-            UI.font_menu_item(plugin),
             {
-                text = _("不注释人名/地名（只大写出现过的词）"),
+                text = _("不注释人名/地名"),
                 checked_func = function() return plugin:getSetting("reject_names", true) == true end,
                 callback = function()
                     plugin:saveSetting("reject_names", not (plugin:getSetting("reject_names", true) == true))
@@ -1386,10 +1386,10 @@ function UI.build_prefetch_menu(plugin)
         callback = function() plugin:start_prefetch_book() end,
     })
     table.insert(items, {
-        text = _("重新翻译整本（联网，覆盖已有释义）"),
+        text = _("重新翻译整本"),
         callback = function()
             UI.confirm({
-                title = _("重新翻译整本书的生词，覆盖已有的释义？\n会重新联网一次；原书不会被修改。"),
+                title = _("重新翻译整本书的生词，覆盖已有的释义？\n原书不会被修改。"),
                 confirm_text = _("开始"),
             }, function() plugin:start_prefetch_book(true) end)
         end,
@@ -1408,7 +1408,7 @@ function UI.build_prefetch_menu(plugin)
         end,
     })
     table.insert(items, {
-        text = _("阅读时自动补翻译生词（默认关，会自己联网）"),
+        text = _("阅读时自动补翻译生词（需要联网）"),
         checked_func = function()
             return plugin:getSetting("auto_prefetch", false) == true
         end,
