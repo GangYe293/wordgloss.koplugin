@@ -35,7 +35,7 @@ local wordgloss = WidgetContainer:extend{
 }
 
 -- 与 _meta.lua 里的 version 保持一致：菜单「关于」显示它，更新器拿它比大小。
-wordgloss.VERSION = "1.8.11"
+wordgloss.VERSION = "1.8.12"
 
 local SETTING_PREFIX = "wordgloss_"
 local AUTO_PREFETCH_COOLDOWN = 30   -- 自动预取的两次尝试之间至少间隔多少秒
@@ -108,6 +108,12 @@ function wordgloss:addToMainMenu(menu_items)
 end
 
 function wordgloss:onReaderReady()
+    -- 只在 CRE 渲染的文档上激活：PDF 等走 mupdf/kopt 的文档不支持行内注所需的
+    -- 回流与 xpointer，强行跑会直接让 KOReader 退出（崩溃日志 main.lua:747/768）。
+    if not self:isCompatibleDocument() then
+        logger.warn("wordgloss: 文档非 CRE 类型（如 PDF/DjVu/CBZ），跳过激活")
+        return
+    end
     -- 绘制层：ReaderView 会把注册过的模块在页面之后画到同一个 blitbuffer 上。
     if not self.overlay and self.ui and self.ui.view then
         self.overlay = Overlay:new{
@@ -324,6 +330,21 @@ end
 -- 不要在每个事件回调里抛异常刷日志。
 function wordgloss:is_usable()
     return self.cache ~= nil and self.lexicon ~= nil and self.book ~= nil
+end
+
+--[[--
+只支持 CRE 渲染的可回流文档（EPUB / MOBI / AZW3 / FB2 / TXT / HTML 等）。
+
+PDF / DjVu / CBZ 等走 mupdf/kopt，没有 xpointer 与 setStyleSheet，强行跑注释
+会直接让 KOReader 退出（崩溃点见 refreshGlosses 里的 document:getCurrentPage()）。
+用 setStyleSheet 这个 CRE 标志方法来做能力判断，比 getDocumentType 的字符串更稳，
+也与 refreshDocumentStyles 里 `if not document.setStyleSheet then return false end`
+的判断保持一致。
+]]
+function wordgloss:isCompatibleDocument()
+    local document = self.ui and self.ui.document
+    if not document then return false end
+    return document.setStyleSheet ~= nil
 end
 
 -- "inline" = 注释在词上方；"below" = 注释在下划线下方。
@@ -733,6 +754,8 @@ end
 function wordgloss:refreshGlosses(force)
     local document = self.ui and self.ui.document
     if not document then return end
+    -- overlay 为空说明不是 CRE 文档（onReaderReady 没注册）或还没准备好：
+    -- 直接返回，绝不往下走到 document:getCurrentPage()，避免 PDF 等文档上崩。
     if not self.overlay then return end
     if not self:is_usable() then
         self.overlay:clear()
@@ -764,8 +787,14 @@ function wordgloss:refreshGlosses(force)
     self.overlay.underline = self:getSetting("underline", true) == true
     self:apply_overlay_style()
 
+    -- 安全取当前页：CRE 文档才有 getCurrentPage，但为防万一仍包 pcall，
+    -- 与 Page 模块里 call() 包裹的风格一致，避免任何未捕获错误拖垮 KOReader。
+    local page = (function()
+        local ok, p = pcall(function() return document:getCurrentPage() end)
+        return ok and p or 1
+    end)()
     local glosses, pending, stats = Page.build_glosses(document,
-        document:getCurrentPage(), {
+        page, {
             lexicon = self.lexicon,
             cache = self.cache,
             rank_limit = self:getRankLimit(),

@@ -378,6 +378,12 @@ opts = {
 function Prefetch:start(opts)
     opts = opts or {}
     local plugin = self.plugin
+    -- 非 CRE 文档（PDF/DjVu/CBZ 等）不支持：直接拦下，避免 worker 里去解包
+    -- PDF 触发"无法解包 EPUB"的误导报错。document 为空（测试桩）时不拦截。
+    local doc = plugin.ui and plugin.ui.document
+    if doc and plugin.isCompatibleDocument and not plugin:isCompatibleDocument() then
+        return false, _("WordGloss 仅支持 EPUB 等可回流文档，PDF 暂不支持")
+    end
     if self:is_running() then
         return false, _("已有生词翻译任务在运行")
     end

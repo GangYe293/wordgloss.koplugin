@@ -570,6 +570,10 @@ node runlua.js <tests/wordgloss> <tests/wordgloss>/dump_menu.lua
 
 ## Known limitations
 
+- **Reflowable documents only (EPUB, etc.).** Glosses rely on CRE's word-level positioning and
+  line-height injection, which fixed-layout documents (PDF, DjVu, CBZ) do not provide. On those
+  formats WordGloss stays dormant — it does not crash and does not interfere with reading.
+  Word-by-word glossing on PDF is a separate feature and is not implemented yet.
 - **English only.** The frequency and lemma data is English, and tokenization splits on spaces.
 - Glosses are machine translations and **do not disambiguate senses** (polysemous words get
   their most common meaning). They are hints, not a dictionary.
