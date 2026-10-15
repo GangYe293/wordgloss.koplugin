@@ -15,6 +15,18 @@ local Changelog = {}
 -- 最新在上。每条是若干行文字，行内不要换行，显示时按顺序拼起来。
 Changelog.ENTRIES = {
     {
+        version = "1.8.13",
+        lines = {
+            "新增「划词翻译」（接管 KOReader 原生翻译，无需再单独装 AI 翻译插件）：",
+            "· 选中文字弹出的翻译现在走本插件自己的联网引擎（Edge / Google / 智谱 / 硅基流动 / DeepL / DeepSeek / 通用OpenAI），",
+            "  菜单「划词翻译」可一键开关，关闭则退回原生 Google 翻译。",
+            "· 劫持的是 KOReader 翻译入口 Translator.showTranslation（在父进程里被划词直接调用，patch 一定生效），",
+            "  并复刻原生弹窗（保存笔记 / 复制）；全程异常兜底，翻译失败安全退回原生，不会把选区卡在选中状态。",
+            "· 检测到 AI 翻译插件已启用时自动让出，避免两个插件互相踩踏；",
+            "  生词注释与划词翻译共用同一套引擎配置（ai_engine）与密钥，只维护一份。",
+        },
+    },
+    {
         version = "1.8.12",
         lines = {
             "修一个开 PDF 直接崩出 KOReader 的 bug：",

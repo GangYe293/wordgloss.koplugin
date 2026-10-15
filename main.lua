@@ -28,6 +28,7 @@ local Overlay = require("wordgloss_overlay")
 local Prefetch = require("wordgloss_prefetch")
 local Updater = require("wordgloss_update")
 local UI = require("wordgloss_ui")
+local Live = require("wordgloss_live")
 
 local wordgloss = WidgetContainer:extend{
     name = "wordgloss",
@@ -35,7 +36,7 @@ local wordgloss = WidgetContainer:extend{
 }
 
 -- 与 _meta.lua 里的 version 保持一致：菜单「关于」显示它，更新器拿它比大小。
-wordgloss.VERSION = "1.8.12"
+wordgloss.VERSION = "1.8.13"
 
 local SETTING_PREFIX = "wordgloss_"
 local AUTO_PREFETCH_COOLDOWN = 30   -- 自动预取的两次尝试之间至少间隔多少秒
@@ -57,6 +58,15 @@ function wordgloss:init()
         end
     else
         logger.warn("wordgloss: ui.menu 不可用，跳过菜单注册")
+    end
+
+    -- 划词翻译接管（全局生效，不依赖文档类型）：仅在开关打开且未检测到 ai_translator 时。
+    -- 放在 cache 初始化之前，确保即使后面初始化失败，划词翻译也已生效。
+    if self:getSetting("live_translate", true) then
+        local live_ok, live_err = pcall(function() Live:enable(self) end)
+        if not live_ok then
+            logger.err("wordgloss: 划词翻译接管失败:", tostring(live_err))
+        end
     end
 
     local ok, err = pcall(function()

@@ -824,6 +824,49 @@ end
 设置项按"注释"与"下划线"分两组收起来，主菜单只留六七个入口，
 不用在十几行里找某个偏移。
 ]]
+--[[--
+划词翻译：开关接入 KOReader 原生翻译（全局接管），复用本插件的联网引擎。
+默认开启；关闭后退回 KOReader 原生 Google 翻译。若检测到 ai_translator 已启用，
+则主动让出（不接管），并在菜单里给出提示。
+]]
+function UI.live_menu(plugin)
+    local Live = require("wordgloss_live")
+    local UIManager = require("ui/uimanager")
+    local items = {
+        {
+            text = _("启用划词翻译"),
+            checked_func = function()
+                return plugin:getSetting("live_translate", true)
+            end,
+            callback = function()
+                local on = not plugin:getSetting("live_translate", true)
+                plugin:saveSetting("live_translate", on)
+                if on then
+                    Live:enable(plugin)
+                else
+                    Live:disable()
+                end
+                UIManager:show(require("ui/widget/infomessage"):new{
+                    text = on
+                        and _("划词翻译已启用：选中文字翻译将走本插件的联网引擎")
+                        or _("划词翻译已关闭：恢复 KOReader 原生翻译"),
+                })
+            end,
+            help_text = _("接管 KOReader 原生「选中文字 → 翻译」，复用本插件的联网引擎，无需再安装 AI 翻译插件。"),
+        },
+    }
+    if Live:ai_translator_conflict() then
+        table.insert(items, {
+            text = _("已检测到 AI 翻译插件，划词翻译未接管（避免冲突）"),
+            enabled_func = function() return false end,
+        })
+    end
+    return {
+        text_func = function() return _("划词翻译") end,
+        sub_item_table = items,
+    }
+end
+
 function UI.build_menu(plugin)
     local menu = {}
 
@@ -847,6 +890,9 @@ function UI.build_menu(plugin)
             return UI.build_prefetch_menu(plugin)
         end,
     })
+
+    -- 划词翻译：全局接管 KOReader 原生翻译（默认开）。
+    table.insert(menu, UI.live_menu(plugin))
 
     -- 维护
     table.insert(menu, UI.clear_menu(plugin))

@@ -7,11 +7,11 @@ WordGloss annotates difficult words with a short Chinese meaning printed directl
 book by a single byte**. No `<ruby>` tags are injected, no XHTML is rewritten; the glosses
 exist only inside the plugin's own cache and paint layer.
 
-Current version: **1.8.11** (matches `_meta.lua`).
+Current version: **1.8.13** (matches `_meta.lua`).
 
 **[English](README.md) | [简体中文](README.zh-CN.md)**
 
-![version](https://img.shields.io/badge/version-1.8.11-blue)
+![version](https://img.shields.io/badge/version-1.8.13-blue)
 ![platform](https://img.shields.io/badge/platform-KOReader-green)
 ![license](https://img.shields.io/badge/license-GPL--3.0-orange)
 
@@ -73,11 +73,16 @@ Current version: **1.8.11** (matches `_meta.lua`).
   (ranks + lemmatization) and the ~4 MB meaning pack above — both trimmed from ECDICT down to
   the words this plugin can actually annotate, not the several-hundred-MB dictionaries some
   other solutions require.
+- **Inline word translation (new).** Selecting any text now routes its translation through the
+  plugin's own engines, reusing the **same engine and API keys** configured under
+  *Translation settings → Online settings* — no separate AI-translator plugin needed.
+  Toggle it in the **Inline word translation** menu (on by default); turning it off restores
+  KOReader's original Google translation. The native "save to note / copy" popup is kept.
 
 ## Installation
 
-1. Download `wordgloss-1.8.11.zip` (full package, includes the offline dictionary) or
-   `wordgloss-1.8.11-code.zip` (code only — enough if the dictionary is already installed);
+1. Download `wordgloss-1.8.13.zip` (full package, includes the offline dictionary) or
+   `wordgloss-1.8.13-code.zip` (code only — enough if the dictionary is already installed);
    both are attached to the release.
 2. Extract / copy it into KOReader's `plugins/` directory. The final layout **must** be:
 

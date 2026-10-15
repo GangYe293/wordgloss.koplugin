@@ -14,12 +14,29 @@
 local logger = require("logger")
 local _ = require("gettext")
 
+-- 把字符串前 n 字节转成 hex，用于诊断上报（看清 body 首字符是不是 BOM / 异常字符）。
+local function hexdump(s, n)
+    s = s or ""
+    n = n or 16
+    local out = {}
+    for i = 1, math.min(#s, n) do
+        out[#out + 1] = string.format("%02X", s:byte(i))
+    end
+    return table.concat(out, " ")
+end
+
 local Providers = {}
 
 Providers.ENDPOINT = "https://edge.microsoft.com/translate/translatetext"
 Providers.MAX_ITEMS = 12       -- 单次请求最多几个词
 Providers.MAX_BYTES = 4000     -- 单次请求 body 的最大字节数
 Providers.TIMEOUT = 15
+
+-- 剥离 UTF-8 BOM（EF BB BF）。Microsoft Edge 翻译端点会对带 BOM 的 body 返回 400，
+-- 任何合法 JSON 都不该带 BOM，剥离零副作用。提成函数便于单测与复用。
+function Providers.strip_bom(s)
+    return (s or ""):gsub("^\239\187\191", "")
+end
 
 local function url_encode(value)
     local ok, socket_url = pcall(require, "socket.url")
@@ -39,46 +56,69 @@ function Providers.build_url(source_lang, target_lang)
     return url
 end
 
--- 真实 HTTP 调用。测试可以替换成假的实现。
--- 返回值与 dualtranslate 的 httpRequest 一致：成功返回解码后的 data，
--- 失败返回 nil, { code=..., message=..., detail=..., raw=... }。
+-- 真实 HTTP 调用。实现完全对齐 ai_translator.koplugin/edge_translator.lua 的 loadPage
+-- （该实现在同型号 Kindle 上验证 Edge 可用），消除所有可能触发 Edge 400 的差异点：
+--   · socket.skip(1, http.request(req)) 跳过 luasocket 表请求的成功标记 1
+--   · socketutil:set_timeout(30) 单参数（与 ai_translator 一致，不传双参避免语义偏差）
+--   · Content-Length 用数字 #body（luasocket 内部处理更稳）
+--   · wantread / timeout 自动重试 3 次 + 指数退避（网络抖动时不直接失败）
+-- 测试可替换成假的实现。返回值：成功返回解码后的 data，失败返回
+-- nil, { code=..., message=..., detail=..., raw=... }。
 function Providers.http_post(url, body)
+    -- 防御：某些构建的 json.encode 可能在输出前附 UTF-8 BOM（EF BB BF），
+    -- 任何合法 JSON 都不该带 BOM，剥离零副作用。
+    body = Providers.strip_bom(body)
+    local socket = require("socket")
     local http = require("socket.http")
     local ltn12 = require("ltn12")
     local json = require("json")
     local socketutil = require("socketutil")
 
     local response = {}
-    local headers = {
-        ["Content-Type"] = "application/json",
-        ["Accept"] = "application/json",
-        ["Content-Length"] = tostring(#body),
-    }
-
-    -- 诊断：请求前记录 URL 与 body 前缀，便于真机排查。
-    logger.dbg("wordgloss: HTTP POST", url, "body=", body:sub(1, 120))
-
-    socketutil:set_timeout(Providers.TIMEOUT, Providers.TIMEOUT)
-    -- luasocket 的 http.request 用表参数时：成功返回 1, code, headers, status；
-    -- 失败返回 nil, errmsg。不写 skip(1) 会把第一个返回值（那个 1/nil）当成状态码，
-    -- 真正的 HTTP 码和错误消息就全错位了。
-    local ok, code, resp_headers, status = http.request{
+    local request = {
         url = url,
         method = "POST",
-        headers = headers,
+        headers = {
+            ["Content-Type"] = "application/json",
+            ["Accept"] = "application/json",
+            ["Content-Length"] = #body,
+        },
         source = ltn12.source.string(body),
         sink = ltn12.sink.table(response),
     }
+
+    logger.dbg("wordgloss: HTTP POST", url, "body=", body:sub(1, 120))
+
+    -- 与 ai_translator 一致：单参数 30s 超时 + wantread/timeout 重试。
+    socketutil:set_timeout(30)
+    local code, resp_headers, status
+    local max_retries, retry_delay, retry_count = 3, 2, 0
+    while retry_count < max_retries do
+        -- socket.skip(1, ...) 跳过 http.request 表形式的成功标记 1，
+        -- 直接拿到 code, headers, status；失败时 code = errmsg, headers = nil。
+        code, resp_headers, status = socket.skip(1, http.request(request))
+        if status and (status:find("wantread") or status:find("WANTREAD")
+            or status:find("timeout") or status:find("TIMEOUT")) then
+            retry_count = retry_count + 1
+            logger.dbg("wordgloss: HTTP retry", retry_count .. "/" .. max_retries,
+                "status=", tostring(status))
+            socket.sleep(retry_delay)
+            retry_delay = retry_delay * 1.2
+        else
+            break
+        end
+    end
     socketutil:reset_timeout()
 
     local raw = table.concat(response)
-    logger.dbg("wordgloss: HTTP response", "ok=", tostring(ok), "code=", tostring(code),
+    logger.dbg("wordgloss: HTTP response", "code=", tostring(code),
         "status=", tostring(status), "raw_len=", tostring(#raw),
         "raw=", raw:sub(1, 160))
 
-    -- 网络层失败（连不上 / DNS / 超时）：ok 为 nil，第二个返回值是错误消息。
-    if not ok then
-        logger.warn("wordgloss: provider network error:", tostring(code))
+    -- 网络层失败（连不上 / DNS / 超时）：headers 为 nil（socket.skip 后）。
+    if resp_headers == nil then
+        logger.warn("wordgloss: provider network error:", tostring(code),
+            "url=", url, "body_head=", hexdump(body, 16))
         return nil, {
             code = nil,
             message = _("翻译服务连接失败，请检查网络"),
@@ -87,20 +127,33 @@ function Providers.http_post(url, body)
         }
     end
 
-    local ok_decode, data = pcall(json.decode, raw)
-    if not ok_decode or not data then
-        logger.warn("wordgloss: provider HTTP error:", tostring(code), tostring(status), raw:sub(1, 160))
+    -- HTTP 事务完成但服务器返回非 200（如 Edge 400）。
+    if code ~= 200 then
+        logger.warn("wordgloss: provider HTTP error:", tostring(code), tostring(status),
+            "url=", url, "body_head=", hexdump(body, 16), "resp=", raw:sub(1, 160))
         return nil, {
             code = code,
-            message = (code == 200)
-                and _("翻译服务返回的内容无法解析")
-                or string.format(_("翻译服务返回 HTTP %s"), tostring(code)),
+            message = string.format(_("翻译服务返回 HTTP %s"), tostring(code)),
+            detail = tostring(status),
+            raw = raw:sub(1, 200),
+        }
+    end
+
+    local ok_decode, data = pcall(json.decode, raw)
+    if not ok_decode or not data then
+        logger.warn("wordgloss: provider JSON decode error:", tostring(data),
+            "url=", url, "body_head=", hexdump(body, 16), "resp=", raw:sub(1, 160))
+        return nil, {
+            code = code,
+            message = _("翻译服务返回的内容无法解析"),
             detail = tostring(status),
             raw = raw:sub(1, 200),
         }
     end
     if type(data) == "table" and data.error then
         local message = type(data.error) == "table" and data.error.message or data.error
+        logger.warn("wordgloss: provider API error:", tostring(message),
+            "url=", url, "body_head=", hexdump(body, 16))
         return nil, { code = code, message = tostring(message or _("翻译服务错误")), raw = raw:sub(1, 200) }
     end
     return data

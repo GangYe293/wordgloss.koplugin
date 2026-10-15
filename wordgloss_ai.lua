@@ -675,4 +675,216 @@ function AI:translate_all(words, opts)
     return results, first_error
 end
 
+-- ---------------------------------------------------------------------------
+-- 整句 / 选段翻译（划词翻译用）
+-- ---------------------------------------------------------------------------
+
+-- KOReader 的 Translator.translate 传入的 target_lang / source_lang 是 2 字母大写
+-- （ZH / EN / JA …）。各引擎要求的格式不同，这里做一层映射。
+-- Edge 与 Google 的 ZH 要写成 zh-Hans / zh-CN，其余语言直接小写即可；
+-- OpenAI 的 prompt 里用英语全名最稳。
+AI.EDGE_LANG = { ZH = "zh-Hans" }
+AI.GOOGLE_LANG = { ZH = "zh-CN" }
+AI.NAME_LANG = {
+    ZH = "Chinese", EN = "English", JA = "Japanese", KO = "Korean",
+    FR = "French", DE = "German", ES = "Spanish", RU = "Russian",
+    IT = "Italian", PT = "Portuguese", AR = "Arabic", HI = "Hindi",
+}
+
+-- KOReader 界面语言可能是 "zh_CN"（下划线）/ "zh-Hans"（连字符）/ "ZH"（2字母大写）
+-- 等各种格式。Edge 要求 BCP 47：zh-Hans / zh-Hant / en / ja …。
+-- 照 ai_translator.koplugin 的 toEdgeLang 实现，用 [_-] 同时匹配下划线与连字符，
+-- 否则 "zh_CN" 会被 lower 成 "zh_cn" 传给 Edge → 400 Bad Request（坑⑤，真机已坐实）。
+function AI.lang_to_edge(code)
+    if not code or code == "" or code:lower() == "auto" then
+        return nil
+    end
+    local base, variant = code:match("^(%a+)[_-](%a+)$")
+    if base then
+        base = base:lower()
+        variant = variant:lower()
+        if base == "zh" then
+            if variant == "hant" or variant == "tw" or variant == "hk" or variant == "mo" then
+                return "zh-Hant"
+            end
+            return "zh-Hans"
+        end
+        return base
+    end
+    local up = code:upper()
+    if AI.EDGE_LANG[up] then return AI.EDGE_LANG[up] end
+    return code:lower()
+end
+
+function AI.lang_to_google(code)
+    if not code or code == "" or code:lower() == "auto" then
+        return nil
+    end
+    local base, variant = code:match("^(%a+)[_-](%a+)$")
+    if base then
+        base = base:lower()
+        if base == "zh" then
+            return "zh-CN"
+        end
+        return base
+    end
+    local up = code:upper()
+    if AI.GOOGLE_LANG[up] then return AI.GOOGLE_LANG[up] end
+    return code:lower()
+end
+
+function AI.lang_to_name(code)
+    if not code or code == "" or code:lower() == "auto" then
+        return "the original language"
+    end
+    local base = code:match("^(%a+)[_-]")
+    if base then
+        local up = base:upper()
+        if AI.NAME_LANG[up] then return AI.NAME_LANG[up] end
+    end
+    local up = code:upper()
+    return AI.NAME_LANG[up] or code
+end
+
+--[[--
+整句翻译：OpenAI 系（智谱 / 硅基流动 / DeepSeek / 通用）。
+
+与 translate_chat 不同，这里返回纯文本译文，不要求 JSON 数组。prompt 里
+显式给出源语言与目标语言，模型只回译文本身。
+]]
+function AI:translate_sentence_chat(text, source, target, cfg)
+    local json = require("json")
+    local url = AI.chat_url(cfg.base_url)
+    if not url then
+        return nil, { message = _("Base URL 未填写") }
+    end
+    if not cfg.api_key or cfg.api_key == "" then
+        return nil, { message = _("API密钥未填写") }
+    end
+    local source_desc = (not source or source == "" or source:lower() == "auto")
+        and "the original language" or AI.lang_to_name(source)
+    local target_desc = AI.lang_to_name(target)
+    local prompt = string.format(
+        "Translate the following text from %s into %s. " ..
+        "Reply with only the translation, no explanation, no quotes, no markdown.\n\n%s",
+        source_desc, target_desc, text)
+    local body = json.encode({
+        model = cfg.model,
+        messages = { { role = "user", content = prompt } },
+        temperature = 0.3,
+    })
+    local data, err = self:post(url, body, {
+        ["Authorization"] = "Bearer " .. tostring(cfg.api_key),
+    }, { timeout = AI.TIMEOUT })
+    if not data then return nil, err end
+    local content = data.choices and data.choices[1]
+        and (data.choices[1].message and data.choices[1].message.content
+            or data.choices[1].text)
+    if type(content) ~= "string" or content == "" then
+        return nil, { message = _("翻译服务返回的内容无法解析"), raw = tostring(data) }
+    end
+    -- 模型偶尔会包一层引号，去掉首尾引号与空白。
+    content = content:match("^%s*[\"']?(.-)[\"']?%s*$") or content
+    return content
+end
+
+--[[--
+整句翻译：DeepL。text 字段本就是数组，把整段作为一个元素传进去即可。
+target_lang 用 KOReader 给的 2 字母（ZH/EN/DE…），DeepL 直接支持；
+source 为 auto 时不传 source_lang，交给 DeepL 自动检测。
+]]
+function AI:translate_sentence_deepl(text, source, target, cfg)
+    if not cfg.api_key or cfg.api_key == "" then
+        return nil, { message = _("API密钥未填写") }
+    end
+    local json = require("json")
+    local body = json.encode({
+        text = { text },
+        target_lang = target,
+        source_lang = (source and source ~= "" and source:lower() ~= "auto")
+            and source or nil,
+    })
+    local data, err = self:post(AI.deepl_server(cfg.api_type) .. AI.DEEPL_PATH, body, {
+        ["Authorization"] = "DeepL-Auth-Key " .. tostring(cfg.api_key),
+    }, { timeout = AI.TIMEOUT })
+    if not data then return nil, err end
+    local list = data.translations
+    if type(list) ~= "table" or not list[1] then
+        return nil, { message = _("翻译服务返回的内容无法解析"), raw = tostring(data) }
+    end
+    local item = list[1]
+    local translated = type(item) == "table" and (item.text or item[1]) or item
+    if type(translated) ~= "string" or translated == "" then
+        return nil, { message = _("翻译服务返回的内容无法解析"), raw = tostring(data) }
+    end
+    return translated
+end
+
+-- 整句翻译的 Google 端点：一个 q 带整段（与单词模式每个词一个 q 不同）。
+function AI.google_sentence_url(text, source, target)
+    local url = require("socket.url")
+    local tl = AI.lang_to_google(target or "ZH")
+    local sl = (source and source ~= "" and source:lower() ~= "auto")
+        and AI.lang_to_google(source) or "auto"
+    return AI.GOOGLE_ENDPOINT .. "?client=gtx&sl=" .. sl .. "&tl=" .. tl
+        .. "&dt=t&q=" .. url.escape(tostring(text))
+end
+
+-- Google gtx 整句返回：data[1] 是按词分段的数组，每段 [译文, 原文, …]，拼接即得整句。
+function AI.parse_google_sentence(data)
+    if type(data) ~= "table" or type(data[1]) ~= "table" then return nil end
+    local parts = {}
+    for _, seg in ipairs(data[1]) do
+        if type(seg) == "table" and type(seg[1]) == "string" then
+            parts[#parts + 1] = seg[1]
+        end
+    end
+    local result = table.concat(parts)
+    if result == "" then return nil end
+    return result
+end
+
+function AI:translate_sentence_google(text, source, target)
+    local get = self.http_get or AI.http_get
+    local data, err = self:attempt(function()
+        return get(AI.google_sentence_url(text, source, target), nil, AI.TIMEOUT)
+    end, { timeout = AI.TIMEOUT })
+    if not data then return nil, err end
+    local result = AI.parse_google_sentence(data)
+    if not result then
+        return nil, { message = _("翻译服务返回的内容无法解析"), raw = tostring(data) }
+    end
+    return result
+end
+
+--[[--
+整句 / 选段翻译（划词翻译入口）。
+
+签名对齐 KOReader 的 Translator.translate(text, target_lang, source_lang)，返回
+译文纯文本字符串或 nil, err。与 translate_all 的根本区别：这里是「一段文本 →
+一段译文」，不要求 JSON 数组对齐，因此不会动到生词注释的单词翻译路径。
+]]
+function AI:translate_sentence(text, opts)
+    opts = opts or {}
+    if type(text) ~= "string" or text == "" then
+        return nil, { message = _("没有可翻译的文本") }
+    end
+    local cfg = opts.config or self:config(opts.engine)
+    local target = opts.target_lang or "ZH"
+    local source = opts.source_lang or "auto"
+    if cfg.kind == "edge" then
+        local Providers = self:edge_backend()
+        local results, err = Providers.request({ text }, source, AI.lang_to_edge(target))
+        if not results then return nil, err end
+        return results[1]
+    end
+    if cfg.kind == "google" then
+        return self:translate_sentence_google(text, source, target)
+    end
+    if cfg.kind == "deepl" then
+        return self:translate_sentence_deepl(text, source, target, cfg)
+    end
+    return self:translate_sentence_chat(text, source, target, cfg)
+end
+
 return AI
