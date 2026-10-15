@@ -89,7 +89,10 @@ function Providers.http_post(url, body)
 
     logger.dbg("wordgloss: HTTP POST", url, "body=", body:sub(1, 120))
 
-    -- 与 ai_translator 一致：单参数 30s 超时 + wantread/timeout 重试。
+    -- 与 ai_translator 完全对齐：单参数 30s 超时 + wantread/timeout 重试 3 次 + 指数退避。
+    -- wordgloss 的划词翻译也跑在 Trapper:wrap 子进程里（wordgloss_live.lua 的 patch
+    -- 用 Trapper:wrap 包裹了 _showTranslation），HTTP 不阻塞父进程 UI，可以给足超时和重试。
+    -- 之前误判"在父进程阻塞"把超时砍到 15s/1 次重试，网络抖动时容易误失败。
     socketutil:set_timeout(30)
     local code, resp_headers, status
     local max_retries, retry_delay, retry_count = 3, 2, 0

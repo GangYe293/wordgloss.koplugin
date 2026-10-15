@@ -36,7 +36,7 @@ local wordgloss = WidgetContainer:extend{
 }
 
 -- 与 _meta.lua 里的 version 保持一致：菜单「关于」显示它，更新器拿它比大小。
-wordgloss.VERSION = "1.8.13"
+wordgloss.VERSION = "1.8.14"
 
 local SETTING_PREFIX = "wordgloss_"
 local AUTO_PREFETCH_COOLDOWN = 30   -- 自动预取的两次尝试之间至少间隔多少秒
@@ -144,7 +144,7 @@ function wordgloss:onReaderReady()
         end
     end
     self:hookStyleSheet()
-    -- 只有用户上次选了「开始转换」才恢复；否则打开书什么都不做。
+    -- 只有用户上次选了「注释生词」才恢复；否则打开书什么都不做。
     if not self:isEnabled() then return end
     UIManager:nextTick(function()
         self:refreshDocumentStyles()
@@ -221,7 +221,7 @@ function wordgloss:saveSetting(key, value)
 end
 
 -- 默认关闭：插件安装后不会在打开书时自己开始翻译。
--- 必须由用户在菜单里点「开始转换」才会生效（之后记住这个选择）。
+-- 必须由用户在菜单里点「注释生词」才会生效（之后记住这个选择）。
 function wordgloss:isEnabled()
     return self:getSetting("enabled", false) == true
 end
@@ -229,7 +229,7 @@ end
 --[[--
 菜单里的「显示注释生词」：勾上才把注释画到书页上，取消则只隐藏（数据仍在）。
 
-「开始转换」与「显示」是两件事：前者做转换，后者管看不看得到。取消显示时
+「注释生词」与「显示」是两件事：前者做转换，后者管看不看得到。取消显示时
 注释和为它预留的行距都要撤掉，所以所有绘制/注入的入口统一走 isVisible()。
 ]]
 function wordgloss:showGlosses()
@@ -286,7 +286,7 @@ end
 有没有可以拿来显示的东西：看释义缓存里有没有记录。
 
 释义缓存是跨书共享的（同一语言的词一次翻译永久复用），所以昨天在别的书里
-翻译过、今天换本书也能用。它跟「开始转换」那个开关是两件事——开关丢了对用户
+翻译过、今天换本书也能用。它跟「注释生词」那个开关是两件事——开关丢了对用户
 没有意义，缓存才是"我昨天已经转过"的证据。判断显示与否应该看这个，而不是看
 enabled 标志位。
 ]]
@@ -301,9 +301,9 @@ end
 --[[--
 「显示注释生词」的勾选/取消。
 
-一次都没翻译过时确实无东西可显示，提示用户去点「开始转换」；但只要缓存里
+一次都没翻译过时确实无东西可显示，提示用户去点「注释生词」；但只要缓存里
 已经有释义（昨天转过即可，哪怕是别的书留下的），就直接显示，并顺手把丢失的
-"已开始"状态补上——不必为了看注释再点一次开始转换。
+"已开始"状态补上——不必为了看注释再点一次注释生词。
 ]]
 function wordgloss:toggle_gloss_visibility(menu)
     if not self:is_usable() then
@@ -311,7 +311,7 @@ function wordgloss:toggle_gloss_visibility(menu)
         return false
     end
     if not self:hasGlossData() then
-        UI.showInfo(_("还没有注释生词，请先点上面的「开始转换」"), 3)
+        UI.showInfo(_("还没有注释生词，请先点上面的「注释生词」"), 3)
         if menu and menu.updateItems then menu:updateItems() end
         return false
     end
@@ -487,7 +487,7 @@ function wordgloss:toggleEnabled(menu)
 end
 
 --[[--
-菜单里的「开始转换」：打开注释，然后问用户要不要现在联网翻译生词。
+菜单里的「注释生词」：打开注释，然后问用户要不要现在联网翻译生词。
 
 插件不在打开书时自作主张跑起来——开始、翻译范围、词汇量都是用户在这里选的。
 ]]
@@ -499,7 +499,7 @@ function wordgloss:start_translation(menu)
     self:saveSetting("enabled", true)
     -- 用户主动点上来的意思就是要看注释，顺手把上一次的"隐藏"恢复。
     self:saveSetting("show_glosses", true)
-    -- 清过本书注释数据的，这里也一并解除（"开始转换"等于同意重新显示）。
+    -- 清过本书注释数据的，这里也一并解除（"注释生词"等于同意重新显示）。
     self:markBookRescanned()
     self:applyEnabledState(menu)
     UI.ask_translate_scope(self)
@@ -827,7 +827,7 @@ function wordgloss:refreshGlosses(force)
 end
 
 -- 页面上有生词但还没释义时，静默地把当前章交给后台预取（受冷却时间限制）。
--- 默认关闭：默认只在用户点「开始转换」时联网，不会自己跑网络请求。
+-- 默认关闭：默认只在用户点「注释生词」时联网，不会自己跑网络请求。
 function wordgloss:maybe_auto_prefetch()
     if not self.prefetch then return end
     if self:getSetting("auto_prefetch", false) ~= true then return end
@@ -896,7 +896,7 @@ function wordgloss:start_prefetch_chapter(silent)
                 self:refreshGlosses(true)
                 self:refreshDocumentStyles()
             elseif not silent then
-                UI.showInfo(_("翻译完成。点「开始转换」即可看到注释"), 3)
+                UI.showInfo(_("翻译完成。点「注释生词」即可看到注释"), 3)
             end
         end
     end
@@ -926,7 +926,7 @@ function wordgloss:start_prefetch_book(force)
                 self:refreshGlosses(true)
                 self:refreshDocumentStyles()
             else
-                UI.showInfo(_("翻译完成。点「开始转换」即可看到注释"), 3)
+                UI.showInfo(_("翻译完成。点「注释生词」即可看到注释"), 3)
             end
         end
     end
@@ -986,7 +986,7 @@ end
 释义缓存是跨书共享的，清本书数据并不能动它；而刷新注释是"扫当前页 ->
 查释义缓存 -> 有就画"，跟本书的索引状态无关，所以只清 bookstate 的话注释
 一刷新就原样长回来，看上去像没清。这里给本书留一个待重扫的标记：清掉之后
-必须重新翻译（或点「开始转换」）才会再显示，标记落在 bookstate 里，退出书
+必须重新翻译（或点「注释生词」）才会再显示，标记落在 bookstate 里，退出书
 再进来也记得。
 ]]
 function wordgloss:isBookCleared()
@@ -1051,7 +1051,7 @@ function wordgloss:backfill_pos()
 end
 
 -- 状态行：一眼看出"有没有开始、用哪一档词汇量、攒了多少释义"。
--- 1.6.1 起不再出现在主菜单里（信息在「开始转换」「词汇量」里都能看到），
+-- 1.6.1 起不再出现在主菜单里（信息在「注释生词」「词汇量」里都能看到），
 -- 函数留着给兜底菜单和排查用。
 function wordgloss:status_text()
     if self._init_error then
@@ -1070,7 +1070,7 @@ function wordgloss:status_text()
         -- 开关状态可能没落盘，或这本是转过的另一本书：缓存还在就能直接显示。
         state = _("有释义但未显示（勾上面的「显示注释生词」）")
     else
-        state = _("未开始（点上面的「开始转换」）")
+        state = _("未开始（点上面的「注释生词」）")
     end
     if not self.lexicon:available() then
         return T(_("%1；词频包不可用；释义缓存 %2 条"), state, count)

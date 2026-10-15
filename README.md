@@ -7,11 +7,11 @@ WordGloss annotates difficult words with a short Chinese meaning printed directl
 book by a single byte**. No `<ruby>` tags are injected, no XHTML is rewritten; the glosses
 exist only inside the plugin's own cache and paint layer.
 
-Current version: **1.8.13** (matches `_meta.lua`).
+Current version: **1.8.14** (matches `_meta.lua`).
 
 **[English](README.md) | [简体中文](README.zh-CN.md)**
 
-![version](https://img.shields.io/badge/version-1.8.13-blue)
+![version](https://img.shields.io/badge/version-1.8.14-blue)
 ![platform](https://img.shields.io/badge/platform-KOReader-green)
 ![license](https://img.shields.io/badge/license-GPL--3.0-orange)
 
@@ -75,14 +75,15 @@ Current version: **1.8.13** (matches `_meta.lua`).
   other solutions require.
 - **Inline word translation (new).** Selecting any text now routes its translation through the
   plugin's own engines, reusing the **same engine and API keys** configured under
-  *Translation settings → Online settings* — no separate AI-translator plugin needed.
-  Toggle it in the **Inline word translation** menu (on by default); turning it off restores
-  KOReader's original Google translation. The native "save to note / copy" popup is kept.
+  *Online translation settings* — no separate AI-translator plugin needed.
+  Toggle it via the **Inline word translation** switch (on by default); turning it off restores
+  KOReader's original translation. The "save to note / copy" popup is kept; on failure an
+  error dialog is shown instead of falling back to the (often unreachable) native Google.
 
 ## Installation
 
-1. Download `wordgloss-1.8.13.zip` (full package, includes the offline dictionary) or
-   `wordgloss-1.8.13-code.zip` (code only — enough if the dictionary is already installed);
+1. Download `wordgloss-1.8.14.zip` (full package, includes the offline dictionary) or
+   `wordgloss-1.8.14-code.zip` (code only — enough if the dictionary is already installed);
    both are attached to the release.
 2. Extract / copy it into KOReader's `plugins/` directory. The final layout **must** be:
 
@@ -143,7 +144,7 @@ anything on book open — you switch it on manually, once:
    **Show glossed words** displays it right away — no need to start the conversion again.
    Only when the cache is completely empty does it ask you to start one first.
 
-Top level has just seven entries; every option lives inside one of them:
+Top level has nine entries; every option lives inside one of them:
 
 | Menu item | Description |
 | --- | --- |
@@ -151,7 +152,9 @@ Top level has just seven entries; every option lives inside one of them:
 | **Vocabulary size** | Beginner 1,500 / Intermediate 3,000 / Advanced 5,000, or a custom threshold. |
 | **Gloss settings** | Everything about the gloss text. |
 | **Underline settings** | Everything about the line under the word. |
-| **Translate settings** | **Network settings** (pick the online engine and its key), then **Gloss source** (`Local first` / `Local only` / `Online only`), then translate current chapter / `Translate whole book (incremental)` / `Re-translate whole book (overwrite)` — **incremental only fills in words that were never glossed, overwrite re-translates the ones that already are** (under `Local first` that replaces online translations with the dictionary's shorter wording), plus the "auto-translate while reading" toggle (needs network; off by default). **Show progress** and **Stop translation** only appear **while a background job is running** — they take no space otherwise; once you dismiss the progress window while a whole-book translation runs, this is where you find the bar again or call the job off. |
+| **Translate settings** | **Gloss source** (`Local first` / `Local only` / `Online only`), then translate current chapter / `Translate whole book (incremental)` / `Re-translate whole book (overwrite)` — **incremental only fills in words that were never glossed, overwrite re-translates the ones that already are** (under `Local first` that replaces online translations with the dictionary's shorter wording), plus the "auto-translate while reading" toggle (needs network; off by default). **Show progress** and **Stop translation** only appear **while a background job is running** — they take no space otherwise; once you dismiss the progress window while a whole-book translation runs, this is where you find the bar again or call the job off. |
+| **Online translation settings** | Pick the online translation engine (Edge / Google / GLM / SiliconFlow / DeepL / DeepSeek / generic OpenAI) and each engine's key / URL / model. Shared by word glossing and inline word translation. |
+| **Inline word translation** | Switch (on by default): takes over KOReader's native "select text → Translate" and routes it through the plugin's engines. Yields automatically if the AI-translator plugin is present, to avoid double-patching. |
 | **Clear gloss data** | Maintenance: `Clear this book's gloss data` (the book's glosses disappear until you translate again; the shared gloss cache is kept for other books) / `Clear all gloss data` (deletes every translated gloss, all books) / **`Backfill part of speech from the local dictionary`** (offline). |
 | **About** | The **version / author / Xiaohongshu ID** rows look like ordinary menu entries but each does something when tapped: version shows what that release changed, author shows the project URL, Xiaohongshu ID tells you where to leave the author a note. Then `Check for updates` (below), `Reinstall offline dictionary` (below), and the daily auto-check toggle. |
 

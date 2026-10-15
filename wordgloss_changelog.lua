@@ -15,6 +15,20 @@ local Changelog = {}
 -- 最新在上。每条是若干行文字，行内不要换行，显示时按顺序拼起来。
 Changelog.ENTRIES = {
     {
+        version = "1.8.14",
+        lines = {
+            "菜单结构调整 + 划词翻译崩溃修复：",
+            "· 一级菜单「开始转换」改名为「注释生词」，进去后的开关也从「开始转换」改为「开始注释生词」，名字与功能对上。",
+            "· 「联网翻译设置」从「翻译生词设置」子菜单提到一级菜单——选引擎和填密钥是高频操作，藏太深不好找；",
+            "  「启用划词翻译」也从「划词翻译」子菜单提到一级并去掉外层容器，直接当开关用。",
+            "· 「翻译生词设置」里不再有联网翻译设置（已提到一级），只留释义来源 / 翻译范围 / 自动补翻等项。",
+            "· 修复关闭翻译弹窗后选区不清导致 KOReader 崩溃退出（button.lua dimen nil）：",
+            "  close_callback 改为无条件清选区（先关 highlight_dialog 再 clear），旧逻辑只在 highlight_dialog 不在时才 clear。",
+            "· 对齐 ai_translator 的网络层：HTTP 超时恢复到 30s、重试 3 次（wordgloss 划词翻译也跑在 Trapper 子进程，不阻塞 UI）；",
+            "  Translator.translate 失败不再回退原生 Google（墙内必超时 30s+），直接返回 nil，与 ai_translator 行为一致。",
+        },
+    },
+    {
         version = "1.8.13",
         lines = {
             "新增「划词翻译」（接管 KOReader 原生翻译，无需再单独装 AI 翻译插件）：",

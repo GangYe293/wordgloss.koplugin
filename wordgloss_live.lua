@@ -133,10 +133,20 @@ function Live:showResult(text, translation, detailed_view, source, target, from_
                     end,
                 },
             })
+            -- 关闭翻译弹窗时无条件清选区：先关 highlight_dialog（如果还在），
+            -- 再 clear()。旧逻辑只在没有 highlight_dialog 时才 clear，但用户
+            -- 从 highlight 菜单点「翻译」时 highlight_dialog 还在 → clear 不执行
+            -- → 选区残留 → 后续操作触发已关闭 widget 的事件 → button.lua:415 崩溃。
             close_callback = function()
-                if not ui.highlight.highlight_dialog then
-                    ui.highlight:clear()
-                end
+                pcall(function()
+                    if ui and ui.highlight then
+                        if ui.highlight.highlight_dialog then
+                            UIManager:close(ui.highlight.highlight_dialog)
+                            ui.highlight.highlight_dialog = nil
+                        end
+                        ui.highlight:clear()
+                    end
+                end)
             end
         end
         if Device:hasClipboard() then
@@ -277,15 +287,15 @@ function Live:enable(plugin)
         end)
     end
 
-    -- 覆盖其它入口（如词典「翻译单词」走 translate）
+    -- 覆盖其它入口（如词典「翻译单词」走 translate）。
+    -- 失败不回退原生 Google——墙内原生 Google 必超时 30s+，回退只会让用户
+    -- 多等几十秒然后还是失败（与 ai_translator 一致：直接返回 nil）。
     Translator.translate = function(self_mod, text, target_lang, source_lang)
-        local translated = Live:translateText(text, target_lang, source_lang)
-        if translated then return translated end
-        return original_translate(self_mod, text, target_lang, source_lang)
+        return Live:translateText(text, target_lang, source_lang)
     end
 
     self._enabled = true
-    logger.dbg("wordgloss: 划词翻译接管已启用（showTranslation）")
+    logger.warn("wordgloss: 划词翻译接管已启用（patch Translator.showTranslation + translate）")
 end
 
 function Live:disable()

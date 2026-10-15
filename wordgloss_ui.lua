@@ -235,7 +235,7 @@ function UI.progress_dialog(title, hooks)
 end
 
 --[[--
-「开始转换」之后问一句翻译范围。
+「注释生词」之后问一句翻译范围。
 
 这一步是用户自己点的，不是插件自作主张：范围（本章 / 整本 / 不翻译）
 也交给用户选。
@@ -441,17 +441,17 @@ function UI.level_menu(plugin)
 end
 
 --[[--
-「开始转换」与其子项。
+「注释生词」与其子项。
 
 父项只当分组用（KOReader 里带子菜单的行点击是进子菜单，不会触发回调），
 真正的开关是子项第一行；这一行的勾代表"转换已经开始了"。
 ]]
 function UI.start_menu(plugin)
     return {
-        text = _("开始转换"),
+        text = _("注释生词"),
         sub_item_table = {
             {
-                text = _("开始转换"),
+                text = _("开始注释生词"),
                 checked_func = function() return plugin:isEnabled() end,
                 callback = function(menu_self)
                     if plugin:isEnabled() then
@@ -820,7 +820,7 @@ end
 --[[--
 菜单骨架。
 
-层级：开始转换 / 词汇量 / 注释设置 / 下划线设置 / 翻译生词 / 清除注释数据 / 状态。
+层级：注释生词 / 词汇量 / 注释设置 / 下划线设置 / 翻译生词 / 清除注释数据 / 状态。
 设置项按"注释"与"下划线"分两组收起来，主菜单只留六七个入口，
 不用在十几行里找某个偏移。
 ]]
@@ -832,38 +832,30 @@ end
 function UI.live_menu(plugin)
     local Live = require("wordgloss_live")
     local UIManager = require("ui/uimanager")
-    local items = {
-        {
-            text = _("启用划词翻译"),
-            checked_func = function()
-                return plugin:getSetting("live_translate", true)
-            end,
-            callback = function()
-                local on = not plugin:getSetting("live_translate", true)
-                plugin:saveSetting("live_translate", on)
-                if on then
-                    Live:enable(plugin)
-                else
-                    Live:disable()
-                end
-                UIManager:show(require("ui/widget/infomessage"):new{
-                    text = on
-                        and _("划词翻译已启用：选中文字翻译将走本插件的联网引擎")
-                        or _("划词翻译已关闭：恢复 KOReader 原生翻译"),
-                })
-            end,
-            help_text = _("接管 KOReader 原生「选中文字 → 翻译」，复用本插件的联网引擎，无需再安装 AI 翻译插件。"),
-        },
-    }
-    if Live:ai_translator_conflict() then
-        table.insert(items, {
-            text = _("已检测到 AI 翻译插件，划词翻译未接管（避免冲突）"),
-            enabled_func = function() return false end,
-        })
-    end
+    local conflict = Live:ai_translator_conflict()
+    local base_help = _("接管 KOReader 原生「选中文字 → 翻译」，复用本插件的联网引擎，无需再安装 AI 翻译插件。")
     return {
-        text_func = function() return _("划词翻译") end,
-        sub_item_table = items,
+        text = _("启用划词翻译"),
+        checked_func = function()
+            return plugin:getSetting("live_translate", true)
+        end,
+        callback = function()
+            local on = not plugin:getSetting("live_translate", true)
+            plugin:saveSetting("live_translate", on)
+            if on then
+                Live:enable(plugin)
+            else
+                Live:disable()
+            end
+            UIManager:show(require("ui/widget/infomessage"):new{
+                text = on
+                    and _("划词翻译已启用：选中文字翻译将走本插件的联网引擎")
+                    or _("划词翻译已关闭：恢复 KOReader 原生翻译"),
+            })
+        end,
+        help_text = conflict
+            and (base_help .. "\n" .. _("已检测到 AI 翻译插件，划词翻译未接管（避免冲突）"))
+            or base_help,
     }
 end
 
@@ -880,7 +872,7 @@ function UI.build_menu(plugin)
 
     table.insert(menu, UI.underline_settings_menu(plugin))
 
-    -- 翻译：联网动作一律手动触发（「开始转换」时也会问一次）
+    -- 翻译：联网动作一律手动触发（「注释生词」时也会问一次）
     table.insert(menu, {
         text_func = function()
             local running = plugin.prefetch ~= nil and plugin.prefetch:is_running()
@@ -891,7 +883,11 @@ function UI.build_menu(plugin)
         end,
     })
 
-    -- 划词翻译：全局接管 KOReader 原生翻译（默认开）。
+    -- 联网翻译设置：用哪个在线引擎 + 各引擎密钥。从「翻译生词设置」提到一级，
+    -- 与划词翻译共用，放在一起更顺手。
+    table.insert(menu, UI.network_menu(plugin))
+
+    -- 划词翻译：全局接管 KOReader 原生翻译（默认开），直接作为一级开关。
     table.insert(menu, UI.live_menu(plugin))
 
     -- 维护
@@ -899,7 +895,7 @@ function UI.build_menu(plugin)
 
     table.insert(menu, UI.about_menu(plugin))
 
-    -- 状态行不再进菜单（信息在「词汇量」「开始转换」里都能看到，多一行反而吵）。
+    -- 状态行不再进菜单（信息在「词汇量」「注释生词」里都能看到，多一行反而吵）。
     -- plugin:status_text() 保留，兜底菜单 / 排查时还能用。
 
     return menu
@@ -911,7 +907,7 @@ function UI.fallback_menu(plugin)
     return {
         {
             text_func = function()
-                return plugin:isEnabled() and _("停止转换") or _("开始转换")
+                return plugin:isEnabled() and _("停止注释") or _("开始注释生词")
             end,
             callback = function(menu_self)
                 if plugin:isEnabled() then
@@ -1116,7 +1112,7 @@ function UI.ai_engine_menu(plugin, engine)
 end
 
 --[[--
-联网设置：用哪个在线引擎，以及各引擎的密钥 / 地址 / 模型。
+联网翻译设置：用哪个在线引擎，以及各引擎的密钥 / 地址 / 模型。
 
 上面一行是当前引擎（单选），下面按「免费」「收费」分组放各引擎的设置，
 与 ai_translator.koplugin 的排法一致。默认 Edge：免费、免密钥、开箱可用。
@@ -1167,7 +1163,7 @@ function UI.network_menu(plugin)
     end
 
     return {
-        text = _("联网设置"),
+        text = _("联网翻译设置"),
         sub_item_table = {
             {
                 text_func = function()
@@ -1576,7 +1572,7 @@ function UI.build_prefetch_menu(plugin)
         return prefetch ~= nil and prefetch:is_running()
     end
 
-    table.insert(items, UI.network_menu(plugin))
+    -- 联网翻译设置已提到一级菜单，这里不再重复。
     table.insert(items, UI.gloss_source_menu(plugin))
     table.insert(items, {
         text = _("翻译当前章的生词"),
